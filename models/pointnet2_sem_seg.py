@@ -50,53 +50,9 @@ class get_loss(nn.Module):
         return total_loss
 
 
-class PW_ATM(nn.Module):
-    def __init__(self, bn_decay=None):
-        super(PW_ATM, self).__init__()
-        self.conv0 = nn.Conv2d(1, 64, kernel_size=1, bias=False)
-        self.bn0 = nn.BatchNorm2d(64)
-        self.conv1 = nn.Conv2d(64, 256, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(256)
-        self.conv2 = nn.Conv2d(512, 128, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(128)
-        self.conv3 = nn.Conv2d(128, 1, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(1)
-        self.relu = nn.ReLU()
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, point_cloud, is_training=True):
-        # point_cloud: [B, C, N]
-        batch_size = point_cloud.size(0)
-        num_point = point_cloud.size(2)
-        point_cloud = point_cloud.permute(0, 2, 1)  # point_cloud: [B, N, C]
-
-        # Extract z-coordinates
-        point_cloud = point_cloud[:, :, 2].unsqueeze(1).unsqueeze(1)  # [B, 1, 1, N]
-
-        net = self.relu(self.bn0(self.conv0(point_cloud)))  # [B, 64, 1, N]
-        net = self.relu(self.bn1(self.conv1(net)))  # [B, 256, 1, N]
-
-        # Global feature vector
-        global_feature = net.max(dim=-1, keepdim=True)[0]  # [B, 256, 1, 1]
-        global_feature = global_feature.repeat(1, 1, 1, num_point)  # [B, 256, 1, N]
-
-        # Concatenate with local features
-        net = torch.cat([net, global_feature], dim=1)  # [B, 512, 1, N]
-
-        net = self.relu(self.bn2(self.conv2(net)))   # [B, 128, 1, N]
-        net = self.sigmoid(self.bn3(self.conv3(net)))  # [B, 1, 1, N]
-
-        transform = net.squeeze(dim=-1).squeeze(dim=-1)  # [B, 1, 1, N]
-        transform = transform.permute(0, 3, 2, 1).squeeze(-1)
-        print(transform.size())
-
-        return transform  # transform [B,N,1] 比例系数
-
-
 if __name__ == '__main__':
     import torch
 
-    # model = get_model(13)
-    model = PW_ATM()
-    xyz = torch.rand(6, 9, 1024)
+    model = get_model(13)
+    xyz = torch.rand(6, 9, 2048)
     (model(xyz))
