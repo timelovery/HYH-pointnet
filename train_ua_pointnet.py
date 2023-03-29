@@ -89,7 +89,7 @@ def main(args):
     log_string('PARAMETER ...')
     log_string(args)
 
-    root = 'data/stanford_indoor3d/'
+    root = 'data/Source_Scene_Point_Clouds/'
     NUM_CLASSES = 13
     NUM_POINT = args.npoint
     BATCH_SIZE = args.batch_size
@@ -187,7 +187,8 @@ def main(args):
             points, target = points.float().cuda(), target.long().cuda()
             points = points.transpose(2, 1)
 
-            seg_pred_1, seg_pred_2, trans_feat = classifier(points)    # TODO: 需要修改成MCD模式
+            # TODO: 需要修改成MCD模式
+            seg_pred_1, seg_pred_2, trans_feat = classifier(points)
             seg_pred_1 = seg_pred_1.contiguous().view(-1, NUM_CLASSES)
             seg_pred_2 = seg_pred_2.contiguous().view(-1, NUM_CLASSES)
 
