@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/方向一致性采样测试.iml" filepath="$PROJECT_DIR$/.idea/方向一致性采样测试.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/UA-pointnet.iml" filepath="$PROJECT_DIR$/.idea/UA-pointnet.iml" />
     </modules>
   </component>
 </project>

@@ -52,7 +52,7 @@ class S3DISDataset(Dataset):
         labels = self.room_labels[room_idx]   # N
         N_points = points.shape[0]
 
-        while (True):
+        while True:
             center = points[np.random.choice(N_points)][:3]
             block_min = center - [self.block_size / 2.0, self.block_size / 2.0, 0]
             block_max = center + [self.block_size / 2.0, self.block_size / 2.0, 0]
@@ -75,6 +75,7 @@ class S3DISDataset(Dataset):
         selected_points[:, 1] = selected_points[:, 1] - center[1]
         selected_points[:, 3:6] /= 255.0
         current_points[:, 0:6] = selected_points
+
         current_labels = labels[selected_point_idxs]
         if self.transform is not None:
             current_points, current_labels = self.transform(current_points, current_labels)

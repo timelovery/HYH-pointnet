@@ -1,7 +1,7 @@
 
 HYH-pointnet is based on pointnet++。
 Currently he is only a beta version, for outdoor venue attractions cloud segmentation
-
+![PW-ATM-FG-MCD.png](..%2F..%2F..%2F..%2F..%2Fhome%2Fhyh%2F%E5%9B%BE%E7%89%87%2FPW-ATM-FG-MCD.png)
 
 ## Selected Projects using This Codebase
 * [PointConv: Deep Convolutional Networks on 3D Point Clouds, CVPR'19](https://github.com/Young98CN/pointconv_pytorch)

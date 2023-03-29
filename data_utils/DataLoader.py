@@ -1,13 +1,14 @@
 import os
+import random
 import numpy as np
-from torch.utils.data.dataset import T_co
 
 from tqdm import tqdm
 from torch.utils.data import Dataset
 
 
 class DataLoader(Dataset):
-    def __init__(self, Source_root='trainval_fullarea', Target_root='trainval_fullarea', num_point=4096, test_area=5, block_size=1.0,
+    def __init__(self, Source_root='trainval_fullarea', Target_root='trainval_fullarea', num_point=4096, test_area=5,
+                 block_size=1.0,
                  sample_rate=1.0, transform=None):
         super().__init__()
         self.num_point = num_point
@@ -56,8 +57,71 @@ class DataLoader(Dataset):
         Source_area_idxs = []
         for index in range(len(Source_areas)):
             Source_area_idxs.extend([index] * int(round(Source_sample_prob[index] * Source_num_iter)))
-        self.Source_area_idx = np.array(Source_area_idxs)
+        # target
+        Target_sample_prob = Target_num_point_all / np.sum(Target_num_point_all)
+        Target_sum_iter = int(np.sum(Target_num_point_all) * sample_rate / num_point)
+        Target_area_idxs = []
+        for index in range(len(Target_areas)):
+            Target_area_idxs.extend([index] * int(round(Target_sample_prob[index] * Target_sum_iter)))
 
+        # 实现数据量对齐
+        if len(Source_area_idxs) > len(Target_area_idxs):
+            for i in range(len(Target_area_idxs), len(Source_area_idxs)):
+                Target_area_idxs.append(random.choice(Target_area_idxs))
+        else:
+            for i in range(len(Source_area_idxs), len(Target_area_idxs)):
+                Source_area_idxs.append(random.choice(Source_area_idxs))
+        self.Source_area_idxs = np.array(Source_area_idxs)
+        self.Target_area_idxs = np.array(Target_area_idxs)
+        print("Totally {} samples in {} set.".format(len(self.Source_area_idxs), "Source_area"))
+        print("Totally {} samples in {} set.".format(len(self.Target_area_idxs), "Target_area"))
 
-    def __getitem__(self, index) -> T_co:
-        pass
+    def __getitem__(self, idx):
+        Source_area_idx = self.Source_area_idxs[idx]
+        Target_area_idx = self.Target_area_idxs[idx]
+        Source_points = self.Source_points[Source_area_idx]
+        Source_labels = self.Source_labels[Source_area_idx]
+        Target_points = self.Target_points[Target_area_idx]
+        Source_N_points = Source_points.shape[0]
+        Target_N_points = Target_points.shape[0]
+
+        Source_selected_point_idx, Source_center = self.point_idxs(Source_points, Source_N_points)  # 选择源场景数据
+        Target_selected_point_idx, Target_center = self.point_idxs(Target_points, Target_N_points)  # 选择目标场景数据
+        Source_current_points = self.normalize(Source_points, Source_selected_point_idx,
+                                               Source_area_idx, Source_center, self.Source_coord_max)
+        Target_current_points = self.normalize(Target_points, Target_selected_point_idx,
+                                               Target_area_idx, Target_center, self.Target_coord_max)
+
+        Source_current_labels = Source_labels[Source_selected_point_idx]
+        if self.transform is not None:
+            Source_current_points, Source_current_labels = self.transform(Source_current_points, Source_current_labels)
+        return Source_current_points, Source_current_labels, Target_current_points
+
+    def point_idxs(self, points, N_points):
+        while True:
+            center = points[np.random.choice(N_points)][:3]
+            block_min = center - [self.block_size / 2.0, self.block_size / 2.0, 0]
+            block_max = center + [self.block_size / 2.0, self.block_size / 2.0, 0]
+            point_idxs = np.where(
+                (points[:, 0] >= block_min[0]) & (points[:, 0] <= block_max[0]) & (points[:, 1] >= block_min[1]) & (
+                        points[:, 1] <= block_max[1]))[0]
+            if point_idxs.size > 1024:
+                break
+        if point_idxs.size >= self.num_point:
+            selected_point_idxs = np.random.choice(point_idxs, self.num_point, replace=False)
+        else:
+            selected_point_idxs = np.random.choice(point_idxs, self.num_point, replace=True)
+        return selected_point_idxs, center
+
+    def normalize(self, points, selected_point_idxs, room_idx, center, coord_max):
+        # normalize
+        selected_points = points[selected_point_idxs, :]  # num_point * 6
+        current_points = np.zeros((self.num_point, 9))  # num_point * 9
+        current_points[:, 6] = selected_points[:, 0] / coord_max[room_idx][0]
+        current_points[:, 7] = selected_points[:, 1] / coord_max[room_idx][1]
+        current_points[:, 8] = selected_points[:, 2] / coord_max[room_idx][2]
+        selected_points[:, 0] = selected_points[:, 0] - center[0]
+        selected_points[:, 1] = selected_points[:, 1] - center[1]
+        selected_points[:, 3:6] /= 255.0
+        current_points[:, 0:6] = selected_points
+        return current_points
