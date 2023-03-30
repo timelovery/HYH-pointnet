@@ -45,7 +45,7 @@ class DataLoader(Dataset):
             coord_min, coord_max = np.amin(points, axis=0)[:3], np.amax(points, axis=0)[:3]
             self.Target_points.append(points),
             self.Target_coord_min.append(coord_min), self.Target_coord_max.append(coord_max)
-            Target_num_point_all.append(points.size[0])
+            Target_num_point_all.append(points.shape[0])
 
         Source_labelweights = Source_labelweights.astype(np.float32)
         Source_labelweights = Source_labelweights / np.sum(Source_labelweights)
@@ -125,3 +125,6 @@ class DataLoader(Dataset):
         selected_points[:, 3:6] /= 255.0
         current_points[:, 0:6] = selected_points
         return current_points
+
+    def __len__(self):
+        return len(self.Source_area_idxs)

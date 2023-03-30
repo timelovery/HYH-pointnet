@@ -55,4 +55,4 @@ if __name__ == '__main__':
 
     model = get_model(13)
     xyz = torch.rand(6, 9, 2048)
-    (model(xyz))
+    (model.sa1.bias)

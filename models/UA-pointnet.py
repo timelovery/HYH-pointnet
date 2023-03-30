@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
+import torch
 from models.pointnet2_utils import PointNetSetAbstraction, PointNetFeaturePropagation
 
 
@@ -21,12 +22,18 @@ class get_model(nn.Module):
 
         # 处理Target_xyz
         transform = self.PA(Target_xyz)
-        Target_xyz[:, 2, :] = Target_xyz[:, 2, :] * transform[:, :, 0]
-        l0_points_1_T, l4_points_T = self.FG(Source_xyz)
+        Target = transform_Function.apply(Target_xyz, transform)
+        # Target_xyz[:, 2, :] = Target_xyz[:, 2, :] * transform[:, :, 0]
+
+        l0_points_1_T, l4_points_T = self.FG(Target)
         F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
         F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
 
-        return F1_pred_S, F2_pred_S, F1_pred_T, F2_pred_T  # 用来计算CE1和CE2 # 用来计算ADV
+        Source_z = Source_xyz[:, 2, :]
+        Target_z = Target[:, 2, :]
+
+        return F1_pred_S, F2_pred_S, F1_pred_T, F2_pred_T, Source_z, Target_z
+        # 用来计算CE1和CE2 # 用来计算ADV  # 用来计算EMD
 
 
 class SetAbstraction(nn.Module):
@@ -73,19 +80,19 @@ class FeatureProgation(nn.Module):
         x_1 = F.log_softmax(self.conv2(x_1), dim=1)
         x_1 = x_1.permute(0, 2, 1)
 
-        return x_1, l4_points
+        return x_1
 
 
 class PW_ATM(nn.Module):
     def __init__(self):
         super(PW_ATM, self).__init__()
-        self.conv0 = nn.Conv2d(1, 64, kernel_size=1, bias=False)
-        self.conv1 = nn.Conv2d(64, 256, kernel_size=1, bias=False)
-        self.conv2 = nn.Conv2d(512, 128, kernel_size=1, bias=False)
-        self.conv3 = nn.Conv2d(128, 1, kernel_size=1, bias=False)
+        self.conv0 = nn.Conv2d(1, 64, kernel_size=1, bias=True)
         self.bn0 = nn.BatchNorm2d(64)
+        self.conv1 = nn.Conv2d(64, 256, kernel_size=1, bias=True)
         self.bn1 = nn.BatchNorm2d(256)
+        self.conv2 = nn.Conv2d(512, 128, kernel_size=1, bias=True)
         self.bn2 = nn.BatchNorm2d(128)
+        self.conv3 = nn.Conv2d(128, 1, kernel_size=1, bias=True)
         self.bn3 = nn.BatchNorm2d(1)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
@@ -122,10 +129,10 @@ class get_loss(nn.Module):
     def __init__(self):
         super(get_loss, self).__init__()
 
-    def forward(self, pred, target, trans_feat, weight):
-        total_loss = F.nll_loss(pred, target, weight=weight)
-
-        return total_loss
+    def forward(self, pred1, pred2, target, weight):
+        total_loss1 = F.nll_loss(pred1, target, weight=weight)
+        total_loss2 = F.nll_loss(pred2, target, weight=weight)
+        return total_loss1 + total_loss2
 
 
 class EMD_loss(nn.Module):  # emd_loss
@@ -133,9 +140,7 @@ class EMD_loss(nn.Module):  # emd_loss
         super(EMD_loss, self).__init__()
 
     def forward(self, Target_Z, Source_Z):
-        norm_squared = torch.sum(torch.pow(Target_Z - Source_Z, 2))
-        norm = torch.sqrt(norm_squared)
-        emd_loss = torch.min(norm)
+        emd_loss = torch.min(torch.sqrt(torch.sum(torch.pow(Target_Z - Source_Z, 2))))
 
         return emd_loss
 
@@ -145,18 +150,38 @@ class ADV_loss(nn.Module):  # ADV_loss
         super(ADV_loss, self).__init__()
 
     def forward(self, F1_pred, F2_pred):
-        adv_loss = torch.sum(torch.abs(F1_pred - F2_pred)) / (F1_pred.size[0] * F1_pred.size[1])
+        adv_loss = torch.sum(torch.abs(F1_pred - F2_pred)) / (F1_pred.size(0) * F1_pred.size(1))
 
         return adv_loss
 
 
+class transform_Function(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, A, B):
+        result = A.clone()
+        result[:, 2, :] *= B[:, :, 0]
+        ctx.save_for_backward(result, B)
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        A, B = ctx.saved_tensors
+        grad_A = grad_output.clone()
+        grad_A[:, 2, :] *= B[:, :, 0]
+        grad_B = torch.sum((grad_output * A[:, 2, :].unsqueeze(1)).permute(0, 2, 1), dim=2, keepdim=True)
+        return grad_A, grad_B
+
+
 if __name__ == '__main__':
-    import torch
 
     model = get_model(13)
     # print(list(model.pw_atm.parameters()))
     # # model = pw_atm()
-    xyz1 = torch.rand(6, 9, 1024)
-    xyz2 = torch.rand(6, 9, 1024)
-    (model(xyz1, xyz2))
-    print(model)
+    # xyz1 = torch.rand(6, 9, 1024)
+    # xyz2 = torch.rand(6, 9, 1024)
+    # (model(xyz1, xyz2))
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+            print(m.bias)
+    # print(model.linear.bias)
