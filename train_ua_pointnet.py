@@ -4,7 +4,7 @@ Date: 20230324
 """
 import argparse
 import os
-from data_utils.DataLoader import DataLoader
+from data_utils.DataLoader import TrainDataLoader, TestDataLoader
 import torch
 import datetime
 import logging
@@ -49,7 +49,7 @@ def parse_args():
     parser.add_argument('--npoint', type=int, default=4096, help='Point Number [default: 4096]')
     parser.add_argument('--step_size', type=int, default=10, help='Decay step for lr decay [default: every 10 epochs]')
     parser.add_argument('--lr_decay', type=float, default=0.7, help='Decay rate for lr decay [default: 0.7]')
-    parser.add_argument('--test_area', type=int, default=5, help='Which area to use for test, option: 1-6 [default: 5]')
+    # parser.add_argument('--test_area', type=int, default=5, help='Which area to use for test, option: 1-6 [default: 5]')
 
     return parser.parse_args()
 
@@ -92,25 +92,26 @@ def main(args):
 
     Source_Scene_root = 'data/Source_Scene_Point_Clouds/'
     Target_Scene_root = 'data/Target_Scene_Point_Clouds/'
+    Test_Scene_root = 'data/Validationset/'
     NUM_CLASSES = 13
     NUM_POINT = args.npoint
     BATCH_SIZE = args.batch_size
 
     print("start loading training data ...")
-    TRAIN_DATASET = DataLoader(Source_root=Source_Scene_root, Target_root=Target_Scene_root, num_point=NUM_POINT,
-                               test_area=args.test_area, block_size=1.0, sample_rate=1.0, transform=None)
+    TRAIN_DATASET = TrainDataLoader(Source_root=Source_Scene_root, Target_root=Target_Scene_root, num_point=NUM_POINT,
+                                block_size=1.0, sample_rate=1.0, transform=None)
     # print("start loading test data ...")
-    # TEST_DATASET = DataLoader(Source_root=Source_Scene_root, Target_root=Target_Scene_root, num_point=NUM_POINT, test_area=args.test_area, block_size=1.0, sample_rate=1.0, transform=None)
+    TEST_DATASET = TestDataLoader(Test_root=Test_Scene_root, num_point=NUM_POINT, block_size=1.0, sample_rate=1.0, transform=None)
 
     trainDataLoader = torch.utils.data.DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE, shuffle=True, num_workers=10,
                                                   pin_memory=True, drop_last=True,
                                                   worker_init_fn=lambda x: np.random.seed(x + int(time.time())))
-    # testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=BATCH_SIZE, shuffle=False, num_workers=10,
-    #                                              pin_memory=True, drop_last=True)
+    testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=BATCH_SIZE, shuffle=False, num_workers=10,
+                                                 pin_memory=True, drop_last=True)
     weights = torch.Tensor(TRAIN_DATASET.Source_labelweights).cuda()
 
     log_string("The number of training data is: %d" % len(TRAIN_DATASET))
-    # log_string("The number of test data is: %d" % len(TEST_DATASET))
+    log_string("The number of test data is: %d" % len(TEST_DATASET))
 
     '''MODEL LOADING'''
     MODEL = importlib.import_module(args.model)
@@ -182,7 +183,7 @@ def main(args):
         total_seen = 0
         loss_sum = 0
         classifier = classifier.train()
-        alpha, beta = 1, 1  # 暂定
+        alpha, beta = 1, 1  # TODO：这里需要调试
 
         torch.autograd.set_detect_anomaly(True)
 
@@ -202,49 +203,57 @@ def main(args):
             Target_points = Target_points.float().cuda()
             Target_points = Target_points.transpose(2, 1)
 
-            # TODO: 需要修改成MCD模式
-            Source_pred_1, Source_pred_2, Target_pred_1, Target_pred_2, Source_z, Target_z = classifier(Source_points,
-                                                                                                        Target_points)
+            """步骤1"""
+            Source_pred_1, Source_pred_2 = classifier(Source_points, Target_points, step='Step1')
             Source_pred_1 = Source_pred_1.contiguous().view(-1, NUM_CLASSES)
             Source_pred_2 = Source_pred_2.contiguous().view(-1, NUM_CLASSES)
-            Target_pred_1 = Target_pred_1.contiguous().view(-1, NUM_CLASSES)
-            Target_pred_2 = Target_pred_2.contiguous().view(-1, NUM_CLASSES)
-
             batch_label = Source_target.view(-1, 1)[:, 0].cpu().data.numpy()
             Source_target = Source_target.view(-1, 1)[:, 0]
+            loss_ce1 = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
+            loss_ce1.backward()
 
-            # TODO: 这里损失函数需要进一步修改
-            loss_ce = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
-            loss_ce.backward()
-
-
-            # 报错：[torch.cuda.FloatTensor [16, 4096]], which is output 0 of AsStridedBackward0, is at version 1; expected version 0 instead.
+            """步骤2"""
+            Source_z, Target_z = classifier(Source_points, Target_points, step='Step2')
             EMD_loss = EMD(Target_z, Source_z)
             EMD_loss.backward()
 
-            # ADV_loss = ADV(Target_pred_1, Target_pred_2)
-            #
-            # max_MCD_loss = loss_ce - alpha * ADV_loss
-            # for param in classifier.PA.parameters():
-            #     param.requires_grad = False
-            # for param in classifier.FG.parameters():
-            #     param.requires_grad = False
-            # max_MCD_loss.backward()
-            # for param in classifier.PA.parameters():
-            #     param.requires_grad = True
-            # for param in classifier.FG.parameters():
-            #     param.requires_grad = True
+            """步骤3"""
+            Source_pred_1, Source_pred_2, Target_pred_1, Target_pred_2 = classifier(Source_points, Target_points, step='Step3')
+            Target_pred_1 = Target_pred_1.contiguous().view(-1, NUM_CLASSES)
+            Target_pred_2 = Target_pred_2.contiguous().view(-1, NUM_CLASSES)
+            Source_pred_1 = Source_pred_1.contiguous().view(-1, NUM_CLASSES)
+            Source_pred_2 = Source_pred_2.contiguous().view(-1, NUM_CLASSES)
+            loss_ce = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
+            ADV_loss = ADV(Target_pred_1, Target_pred_2)
+            max_MCD_loss = loss_ce - alpha * ADV_loss
+            for param in classifier.PA.parameters():
+                param.requires_grad = False
+            for param in classifier.FG.parameters():
+                param.requires_grad = False
+            max_MCD_loss.backward()
+            for param in classifier.PA.parameters():
+                param.requires_grad = True
+            for param in classifier.FG.parameters():
+                param.requires_grad = True
 
-            # min_MCD_loss = loss_ce + beta * ADV_loss
-            # for param in classifier.F1.parameters():
-            #     param.requires_grad = False
-            # for param in classifier.F2.parameters():
-            #     param.requires_grad = False
-            # min_MCD_loss.backward()
-            # for param in classifier.F1.parameters():
-            #     param.requires_grad = True
-            # for param in classifier.F2.parameters():
-            #     param.requires_grad = True
+            """步骤4"""
+            Source_pred_1, Source_pred_2, Target_pred_1, Target_pred_2 = classifier(Source_points, Target_points, step='Step4')
+            Target_pred_1 = Target_pred_1.contiguous().view(-1, NUM_CLASSES)
+            Target_pred_2 = Target_pred_2.contiguous().view(-1, NUM_CLASSES)
+            Source_pred_1 = Source_pred_1.contiguous().view(-1, NUM_CLASSES)
+            Source_pred_2 = Source_pred_2.contiguous().view(-1, NUM_CLASSES)
+            loss_ce = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
+            ADV_loss = ADV(Target_pred_1, Target_pred_2)
+            min_MCD_loss = loss_ce + beta * ADV_loss
+            for param in classifier.F1.parameters():
+                param.requires_grad = False
+            for param in classifier.F2.parameters():
+                param.requires_grad = False
+            min_MCD_loss.backward()
+            for param in classifier.F1.parameters():
+                param.requires_grad = True
+            for param in classifier.F2.parameters():
+                param.requires_grad = True
 
             optimizer.step()
 
@@ -254,7 +263,7 @@ def main(args):
 
             total_correct += correct
             total_seen += (BATCH_SIZE * NUM_POINT)
-            loss_sum += loss_ce
+            loss_sum += loss_ce1
 
         log_string('Training mean loss: %f' % (loss_sum / num_batches))
         log_string('Training accuracy: %f' % (total_correct / float(total_seen)))
@@ -271,77 +280,77 @@ def main(args):
             torch.save(state, savepath)
             log_string('Saving model....')
 
-        # '''Evaluate on chopped scenes'''
-        # with torch.no_grad():
-        #     num_batches = len(testDataLoader)
-        #     total_correct = 0
-        #     total_seen = 0
-        #     loss_sum = 0
-        #     labelweights = np.zeros(NUM_CLASSES)
-        #     total_seen_class = [0 for _ in range(NUM_CLASSES)]
-        #     total_correct_class = [0 for _ in range(NUM_CLASSES)]
-        #     total_iou_deno_class = [0 for _ in range(NUM_CLASSES)]
-        #     classifier = classifier.eval()
-        #
-        #     log_string('---- EPOCH %03d EVALUATION ----' % (global_epoch + 1))
-        #     for i, (points, target) in tqdm(enumerate(testDataLoader), total=len(testDataLoader), smoothing=0.9):
-        #         points = points.data.numpy()
-        #         points = torch.Tensor(points)
-        #         points, target = points.float().cuda(), target.long().cuda()
-        #         points = points.transpose(2, 1)
-        #
-        #         seg_pred_1, trans_feat = classifier(points)
-        #         pred_val = seg_pred_1.contiguous().cpu().data.numpy()
-        #         seg_pred_1 = seg_pred_1.contiguous().view(-1, NUM_CLASSES)
-        #
-        #         batch_label = target.cpu().data.numpy()
-        #         target = target.view(-1, 1)[:, 0]
-        #         loss = criterion(seg_pred_1, target, trans_feat, weights)
-        #         loss_sum += loss
-        #         pred_val = np.argmax(pred_val, 2)
-        #         correct = np.sum((pred_val == batch_label))
-        #         total_correct += correct
-        #         total_seen += (BATCH_SIZE * NUM_POINT)
-        #         tmp, _ = np.histogram(batch_label, range(NUM_CLASSES + 1))
-        #         labelweights += tmp
-        #
-        #         for l in range(NUM_CLASSES):
-        #             total_seen_class[l] += np.sum((batch_label == l))
-        #             total_correct_class[l] += np.sum((pred_val == l) & (batch_label == l))
-        #             total_iou_deno_class[l] += np.sum(((pred_val == l) | (batch_label == l)))
-        #
-        #     labelweights = labelweights.astype(np.float32) / np.sum(labelweights.astype(np.float32))
-        #     mIoU = np.mean(np.array(total_correct_class) / (np.array(total_iou_deno_class, dtype=np.float) + 1e-6))
-        #     log_string('eval mean loss: %f' % (loss_sum / float(num_batches)))
-        #     log_string('eval point avg class IoU: %f' % (mIoU))
-        #     log_string('eval point accuracy: %f' % (total_correct / float(total_seen)))
-        #     log_string('eval point avg class acc: %f' % (
-        #         np.mean(np.array(total_correct_class) / (np.array(total_seen_class, dtype=np.float) + 1e-6))))
-        #
-        #     iou_per_class_str = '------- IoU --------\n'
-        #     for l in range(NUM_CLASSES):
-        #         iou_per_class_str += 'class %s weight: %.3f, IoU: %.3f \n' % (
-        #             seg_label_to_cat[l] + ' ' * (14 - len(seg_label_to_cat[l])), labelweights[l - 1],
-        #             total_correct_class[l] / float(total_iou_deno_class[l]))
-        #
-        #     log_string(iou_per_class_str)
-        #     log_string('Eval mean loss: %f' % (loss_sum / num_batches))
-        #     log_string('Eval accuracy: %f' % (total_correct / float(total_seen)))
-        #
-        #     if mIoU >= best_iou:
-        #         best_iou = mIoU
-        #         logger.info('Save model...')
-        #         savepath = str(checkpoints_dir) + '/best_model.pth'
-        #         log_string('Saving at %s' % savepath)
-        #         state = {
-        #             'epoch': epoch,
-        #             'class_avg_iou': mIoU,
-        #             'model_state_dict': classifier.state_dict(),
-        #             'optimizer_state_dict': optimizer.state_dict(),
-        #         }
-        #         torch.save(state, savepath)
-        #         log_string('Saving model....')
-        #     log_string('Best mIoU: %f' % best_iou)
+        '''Evaluate on chopped scenes'''
+        with torch.no_grad():
+            num_batches = len(testDataLoader)
+            total_correct = 0
+            total_seen = 0
+            loss_sum = 0
+            labelweights = np.zeros(NUM_CLASSES)
+            total_seen_class = [0 for _ in range(NUM_CLASSES)]
+            total_correct_class = [0 for _ in range(NUM_CLASSES)]
+            total_iou_deno_class = [0 for _ in range(NUM_CLASSES)]
+            classifier = classifier.eval()
+
+            log_string('---- EPOCH %03d EVALUATION ----' % (global_epoch + 1))
+            for i, (points, target) in tqdm(enumerate(testDataLoader), total=len(testDataLoader), smoothing=0.9):
+                points = points.data.numpy()
+                points = torch.Tensor(points)
+                points, target = points.float().cuda(), target.long().cuda()
+                points = points.transpose(2, 1)
+
+                seg_pred_1, trans_feat = classifier(points, _, step='Step1')
+                pred_val = seg_pred_1.contiguous().cpu().data.numpy()
+                seg_pred_1 = seg_pred_1.contiguous().view(-1, NUM_CLASSES)
+
+                batch_label = target.cpu().data.numpy()
+                target = target.view(-1, 1)[:, 0]
+                loss = criterion(seg_pred_1, target, trans_feat, weights)
+                loss_sum += loss
+                pred_val = np.argmax(pred_val, 2)
+                correct = np.sum((pred_val == batch_label))
+                total_correct += correct
+                total_seen += (BATCH_SIZE * NUM_POINT)
+                tmp, _ = np.histogram(batch_label, range(NUM_CLASSES + 1))
+                labelweights += tmp
+
+                for l in range(NUM_CLASSES):
+                    total_seen_class[l] += np.sum((batch_label == l))
+                    total_correct_class[l] += np.sum((pred_val == l) & (batch_label == l))
+                    total_iou_deno_class[l] += np.sum(((pred_val == l) | (batch_label == l)))
+
+            labelweights = labelweights.astype(np.float32) / np.sum(labelweights.astype(np.float32))
+            mIoU = np.mean(np.array(total_correct_class) / (np.array(total_iou_deno_class, dtype=np.float) + 1e-6))
+            log_string('eval mean loss: %f' % (loss_sum / float(num_batches)))
+            log_string('eval point avg class IoU: %f' % (mIoU))
+            log_string('eval point accuracy: %f' % (total_correct / float(total_seen)))
+            log_string('eval point avg class acc: %f' % (
+                np.mean(np.array(total_correct_class) / (np.array(total_seen_class, dtype=np.float) + 1e-6))))
+
+            iou_per_class_str = '------- IoU --------\n'
+            for l in range(NUM_CLASSES):
+                iou_per_class_str += 'class %s weight: %.3f, IoU: %.3f \n' % (
+                    seg_label_to_cat[l] + ' ' * (14 - len(seg_label_to_cat[l])), labelweights[l - 1],
+                    total_correct_class[l] / float(total_iou_deno_class[l]))
+
+            log_string(iou_per_class_str)
+            log_string('Eval mean loss: %f' % (loss_sum / num_batches))
+            log_string('Eval accuracy: %f' % (total_correct / float(total_seen)))
+
+            if mIoU >= best_iou:
+                best_iou = mIoU
+                logger.info('Save model...')
+                savepath = str(checkpoints_dir) + '/best_model.pth'
+                log_string('Saving at %s' % savepath)
+                state = {
+                    'epoch': epoch,
+                    'class_avg_iou': mIoU,
+                    'model_state_dict': classifier.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                }
+                torch.save(state, savepath)
+                log_string('Saving model....')
+            log_string('Best mIoU: %f' % best_iou)
         global_epoch += 1
 
 

@@ -12,38 +12,60 @@ class get_model(nn.Module):
         self.F1 = FeatureProgation(num_classes)  # 分类器F1
         self.F2 = FeatureProgation(num_classes)  # 分类器F2
 
-    def forward(self, Source_xyz, Target_xyz):
-        assert Source_xyz.shape == Target_xyz.shape
+    def forward(self, Source_xyz, Target_xyz, step='Step1'):
+        if step == 'Step1':
+            # 处理Source_xyz
+            l0_points_1_S, l4_points_S = self.FG(Source_xyz)
+            F1_pred_S = self.F1(l0_points_1_S, l4_points_S)
+            F2_pred_S = self.F2(l0_points_1_S, l4_points_S)
+            return F1_pred_S, F2_pred_S  # 用来计算CE1和CE2
+        elif step == 'Step2':
+            transform = self.PA(Target_xyz)
+            Target = transform_Function.apply(Target_xyz, transform)
+            Source_z = Source_xyz[:, 2, :]
+            Target_z = Target[:, 2, :]
+            return Source_z, Target_z  # 用来计算EMD
 
-        # 处理Source_xyz
-        l0_points_1_S, l4_points_S = self.FG(Source_xyz)
-        F1_pred_S = self.F1(l0_points_1_S, l4_points_S)
-        F2_pred_S = self.F2(l0_points_1_S, l4_points_S)
+        elif step == 'Step3':
+            # 处理Source_xyz
+            l0_points_1_S, l4_points_S = self.FG(Source_xyz)
+            F1_pred_S = self.F1(l0_points_1_S, l4_points_S)
+            F2_pred_S = self.F2(l0_points_1_S, l4_points_S)
+            # 处理Target_xyz
+            transform = self.PA(Target_xyz)
+            Target = transform_Function.apply(Target_xyz, transform)
+            # Target_xyz[:, 2, :] = Target_xyz[:, 2, :] * transform[:, :, 0]
 
-        # 处理Target_xyz
-        transform = self.PA(Target_xyz)
-        Target = transform_Function.apply(Target_xyz, transform)
-        # Target_xyz[:, 2, :] = Target_xyz[:, 2, :] * transform[:, :, 0]
+            l0_points_1_T, l4_points_T = self.FG(Target)
+            F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
+            F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
 
-        l0_points_1_T, l4_points_T = self.FG(Target)
-        F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
-        F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
+            return F1_pred_S, F2_pred_S, F1_pred_T, F2_pred_T
+            # 用来计算ADV  # 用来计算EMD
+        elif step == 'Step4':
+            # 处理Source_xyz
+            l0_points_1_S, l4_points_S = self.FG(Source_xyz)
+            F1_pred_S = self.F1(l0_points_1_S, l4_points_S)
+            F2_pred_S = self.F2(l0_points_1_S, l4_points_S)
+            # 处理Target_xyz
+            transform = self.PA(Target_xyz)
+            Target = transform_Function.apply(Target_xyz, transform)
 
-        Source_z = Source_xyz[:, 2, :]
-        Target_z = Target[:, 2, :]
+            l0_points_1_T, l4_points_T = self.FG(Target)
+            F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
+            F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
 
-        return F1_pred_S, F2_pred_S, F1_pred_T, F2_pred_T, Source_z, Target_z
-        # 用来计算CE1和CE2 # 用来计算ADV  # 用来计算EMD
+            return F1_pred_S, F2_pred_S, F1_pred_T, F2_pred_T
 
 
 class SetAbstraction(nn.Module):
     def __init__(self):
         super(SetAbstraction, self).__init__()
         # 提取器
-        self.sa1 = PointNetSetAbstraction(1024, 0.1, 32, 9 + 3, [32, 32, 64], False)
-        self.sa2 = PointNetSetAbstraction(256, 0.2, 32, 64 + 3, [64, 64, 128], False)
-        self.sa3 = PointNetSetAbstraction(64, 0.4, 32, 128 + 3, [128, 128, 256], False)
-        self.sa4 = PointNetSetAbstraction(16, 0.8, 32, 256 + 3, [256, 256, 512], False)
+        self.sa1 = PointNetSetAbstraction(1024, 0.1, 32, 9 + 3, [32, 32, 64], False, False)
+        self.sa2 = PointNetSetAbstraction(256, 0.2, 32, 64 + 3, [64, 64, 128], False, False)
+        self.sa3 = PointNetSetAbstraction(64, 0.4, 32, 128 + 3, [128, 128, 256], False, True)
+        self.sa4 = PointNetSetAbstraction(16, 0.8, 32, 256 + 3, [256, 256, 512], False, True)
         self.fp4 = PointNetFeaturePropagation(768, [256, 256])
         self.fp3 = PointNetFeaturePropagation(384, [256, 256])
         self.fp2 = PointNetFeaturePropagation(320, [256, 128])

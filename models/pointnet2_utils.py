@@ -147,7 +147,22 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     return group_idx
 
 
-def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False):
+def random_point_sample(xyz, npoint):
+    """
+    Input:
+        xyz: pointcloud data, [B, N, 3]
+        npoint: number of samples
+    Return:
+        centroids: sampled pointcloud index, [B, npoint]
+    """
+    device = xyz.device
+    B, N, _ = xyz.shape
+    idx = torch.randint(low=0, high=N, size=(B, npoint), device=device)
+
+    return idx
+
+
+def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False, FPS=True):
     """
     Input:
         npoint:
@@ -161,7 +176,10 @@ def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False):
     """
     B, N, C = xyz.shape
     S = npoint
-    fps_idx = farthest_point_sample(xyz, npoint)  # [B, npoint, C]  # 最远距离采样
+    if FPS:
+        fps_idx = farthest_point_sample(xyz, npoint)  # [B, npoint, C]  # 最远距离采样
+    else:
+        fps_idx = random_point_sample(xyz, npoint)  # [B, npoint, C]  # 随机采样
     # fps_idx = fps_sample(xyz, npoint, 8)
     # fps_idx = fps_sample(xyz, npoint)
     new_xyz = index_points(xyz, fps_idx)
@@ -222,8 +240,6 @@ def sample_and_group2(npoint, radius, nsample, xyz, points, returnfps=False):
         return new_xyz, new_points, new_points2
 
 
-
-
 def sample_and_group_all(xyz, points):
     """
     Input:
@@ -245,7 +261,7 @@ def sample_and_group_all(xyz, points):
 
 
 class PointNetSetAbstraction(nn.Module):
-    def __init__(self, npoint, radius, nsample, in_channel, mlp, group_all):
+    def __init__(self, npoint, radius, nsample, in_channel, mlp, group_all, FPS):
         super(PointNetSetAbstraction, self).__init__()
         self.npoint = npoint
         self.radius = radius
@@ -258,6 +274,7 @@ class PointNetSetAbstraction(nn.Module):
             self.mlp_bns.append(nn.BatchNorm2d(out_channel))
             last_channel = out_channel
         self.group_all = group_all
+        self.FPS = FPS
 
     def forward(self, xyz, points):
         """
@@ -275,7 +292,7 @@ class PointNetSetAbstraction(nn.Module):
         if self.group_all:
             new_xyz, new_points1 = sample_and_group_all(xyz, points)
         else:
-            new_xyz, new_points1 = sample_and_group(self.npoint, self.radius, self.nsample, xyz, points)
+            new_xyz, new_points1 = sample_and_group(self.npoint, self.radius, self.nsample, xyz, points, FPS=self.FPS)
             # new_xyz, new_points1, new_points2 = sample_and_group2(self.npoint, self.radius, self.nsample, xyz, points)
 
         # new_xyz: sampled points position data, [B, npoint, C]
