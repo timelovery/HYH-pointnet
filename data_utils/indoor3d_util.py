@@ -7,23 +7,19 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
 
-DATA_PATH = os.path.join(ROOT_DIR, 'data','s3dis', 'Stanford3dDataset_v1.2_Aligned_Version')
+DATA_PATH = os.path.join(ROOT_DIR, 'data', 's3dis', 'Stanford3dDataset_v1.2_Aligned_Version')
 g_classes = [x.rstrip() for x in open(os.path.join(BASE_DIR, 'meta/class_names.txt'))]
-g_class2label = {cls: i for i,cls in enumerate(g_classes)}
-g_class2color = {'ceiling':	[0,255,0],
-                 'floor':	[0,0,255],
-                 'wall':	[0,255,255],
-                 'beam':        [255,255,0],
-                 'column':      [255,0,255],
-                 'window':      [100,100,255],
-                 'door':        [200,200,100],
-                 'table':       [170,120,200],
-                 'chair':       [255,0,0],
-                 'sofa':        [200,100,100],
-                 'bookcase':    [10,200,100],
-                 'board':       [200,200,200],
-                 'clutter':     [50,50,50]} 
-g_easy_view_labels = [7,8,9,10,11,1]
+g_class2label = {cls: i for i, cls in enumerate(g_classes)}
+g_class2color = {'unlabeled': [0, 0, 0],  # 未标记点 ，白色
+                 'man-made terrain': [34, 40, 47],  # 人工造物，黑色
+                 'natural terrain': [128, 128, 128],  # 自然地形 灰色
+                 'high vegetation': [41, 149, 52],  # 高植被，深绿色
+                 'low vegetation': [35, 255, 159],  # 低植被，淡绿色
+                 'buildings': [255, 255, 0],  # 建筑，黄色
+                 'hard scape': [200, 200, 100],  # 硬景观 淡棕黄
+                 'scanning artefacts': [255, 0, 0],  # 扫描工件 红色
+                 'cars': [0, 255, 255]}  # 车 蓝色
+g_easy_view_labels = [7, 8, 9, 10, 11, 1]
 g_label2color = {g_classes.index(cls): g_class2color[cls] for cls in g_classes}
 
 
@@ -48,41 +44,43 @@ def collect_point_label(anno_path, out_filename, file_format='txt'):
     for f in glob.glob(os.path.join(anno_path, '*.txt')):
         cls = os.path.basename(f).split('_')[0]
         print(f)
-        if cls not in g_classes: # note: in some room there is 'staris' class..
+        if cls not in g_classes:  # note: in some room there is 'staris' class..
             cls = 'clutter'
 
         points = np.loadtxt(f)
-        labels = np.ones((points.shape[0],1)) * g_class2label[cls]
-        points_list.append(np.concatenate([points, labels], 1)) # Nx7
-    
+        labels = np.ones((points.shape[0], 1)) * g_class2label[cls]
+        points_list.append(np.concatenate([points, labels], 1))  # Nx7
+
     data_label = np.concatenate(points_list, 0)
     xyz_min = np.amin(data_label, axis=0)[0:3]
     data_label[:, 0:3] -= xyz_min
-    
-    if file_format=='txt':
+
+    if file_format == 'txt':
         fout = open(out_filename, 'w')
         for i in range(data_label.shape[0]):
             fout.write('%f %f %f %d %d %d %d\n' % \
-                          (data_label[i,0], data_label[i,1], data_label[i,2],
-                           data_label[i,3], data_label[i,4], data_label[i,5],
-                           data_label[i,6]))
+                       (data_label[i, 0], data_label[i, 1], data_label[i, 2],
+                        data_label[i, 3], data_label[i, 4], data_label[i, 5],
+                        data_label[i, 6]))
         fout.close()
-    elif file_format=='numpy':
+    elif file_format == 'numpy':
         np.save(out_filename, data_label)
     else:
         print('ERROR!! Unknown file format: %s, please use txt or numpy.' % \
-            (file_format))
+              (file_format))
         exit()
 
-def data_to_obj(data,name='example.obj',no_wall=True):
+
+def data_to_obj(data, name='example.obj', no_wall=True):
     fout = open(name, 'w')
     label = data[:, -1].astype(int)
     for i in range(data.shape[0]):
-        if no_wall and ((label[i] == 2) or (label[i]==0)):
+        if no_wall and ((label[i] == 2) or (label[i] == 0)):
             continue
         fout.write('v %f %f %f %d %d %d\n' % \
                    (data[i, 0], data[i, 1], data[i, 2], data[i, 3], data[i, 4], data[i, 5]))
     fout.close()
+
 
 def point_label_to_obj(input_filename, out_filename, label_color=True, easy_view=False, no_wall=False):
     """ For visualization of a room from data_label file,
@@ -99,16 +97,15 @@ def point_label_to_obj(input_filename, out_filename, label_color=True, easy_view
         color = g_label2color[label[i]]
         if easy_view and (label[i] not in g_easy_view_labels):
             continue
-        if no_wall and ((label[i] == 2) or (label[i]==0)):
+        if no_wall and ((label[i] == 2) or (label[i] == 0)):
             continue
         if label_color:
             fout.write('v %f %f %f %d %d %d\n' % \
-                (data[i,0], data[i,1], data[i,2], color[0], color[1], color[2]))
+                       (data[i, 0], data[i, 1], data[i, 2], color[0], color[1], color[2]))
         else:
             fout.write('v %f %f %f %d %d %d\n' % \
-                (data[i,0], data[i,1], data[i,2], data[i,3], data[i,4], data[i,5]))
+                       (data[i, 0], data[i, 1], data[i, 2], data[i, 3], data[i, 4], data[i, 5]))
     fout.close()
- 
 
 
 # -----------------------------------------------------------------------------
@@ -128,15 +125,17 @@ def sample_data(data, num_sample):
         sample = np.random.choice(N, num_sample)
         return data[sample, ...], sample
     else:
-        sample = np.random.choice(N, num_sample-N)
+        sample = np.random.choice(N, num_sample - N)
         dup_data = data[sample, ...]
-        return np.concatenate([data, dup_data], 0), list(range(N))+list(sample)
+        return np.concatenate([data, dup_data], 0), list(range(N)) + list(sample)
+
 
 def sample_data_label(data, label, num_sample):
     new_data, sample_indices = sample_data(data, num_sample)
     new_label = label[sample_indices]
     return new_data, new_label
-    
+
+
 def room2blocks(data, label, num_point, block_size=1.0, stride=1.0,
                 random_sample=False, sample_num=None, sample_aug=1):
     """ Prepare block training data.
@@ -158,10 +157,10 @@ def room2blocks(data, label, num_point, block_size=1.0, stride=1.0,
         
     TODO: for this version, blocking is in fixed, non-overlapping pattern.
     """
-    assert(stride<=block_size)
+    assert (stride <= block_size)
 
     limit = np.amax(data, 0)[0:3]
-     
+
     # Get the corner location for our sampling blocks    
     xbeg_list = []
     ybeg_list = []
@@ -170,16 +169,16 @@ def room2blocks(data, label, num_point, block_size=1.0, stride=1.0,
         num_block_y = int(np.ceil(collect_point_label(limit[1] - block_size) / stride)) + 1
         for i in range(num_block_x):
             for j in range(num_block_y):
-                xbeg_list.append(i*stride)
-                ybeg_list.append(j*stride)
+                xbeg_list.append(i * stride)
+                ybeg_list.append(j * stride)
     else:
         num_block_x = int(np.ceil(limit[0] / block_size))
         num_block_y = int(np.ceil(limit[1] / block_size))
         if sample_num is None:
             sample_num = num_block_x * num_block_y * sample_aug
         for _ in range(sample_num):
-            xbeg = np.random.uniform(-block_size, limit[0]) 
-            ybeg = np.random.uniform(-block_size, limit[1]) 
+            xbeg = np.random.uniform(-block_size, limit[0])
+            ybeg = np.random.uniform(-block_size, limit[1])
             xbeg_list.append(xbeg)
             ybeg_list.append(ybeg)
 
@@ -187,39 +186,40 @@ def room2blocks(data, label, num_point, block_size=1.0, stride=1.0,
     block_data_list = []
     block_label_list = []
     idx = 0
-    for idx in range(len(xbeg_list)): 
-       xbeg = xbeg_list[idx]
-       ybeg = ybeg_list[idx]
-       xcond = (data[:,0]<=xbeg+block_size) & (data[:,0]>=xbeg)
-       ycond = (data[:,1]<=ybeg+block_size) & (data[:,1]>=ybeg)
-       cond = xcond & ycond
-       if np.sum(cond) < 100: # discard block if there are less than 100 pts.
-           continue
-       
-       block_data = data[cond, :]
-       block_label = label[cond]
-       
-       # randomly subsample data
-       block_data_sampled, block_label_sampled = \
-           sample_data_label(block_data, block_label, num_point)
-       block_data_list.append(np.expand_dims(block_data_sampled, 0))
-       block_label_list.append(np.expand_dims(block_label_sampled, 0))
-            
+    for idx in range(len(xbeg_list)):
+        xbeg = xbeg_list[idx]
+        ybeg = ybeg_list[idx]
+        xcond = (data[:, 0] <= xbeg + block_size) & (data[:, 0] >= xbeg)
+        ycond = (data[:, 1] <= ybeg + block_size) & (data[:, 1] >= ybeg)
+        cond = xcond & ycond
+        if np.sum(cond) < 100:  # discard block if there are less than 100 pts.
+            continue
+
+        block_data = data[cond, :]
+        block_label = label[cond]
+
+        # randomly subsample data
+        block_data_sampled, block_label_sampled = \
+            sample_data_label(block_data, block_label, num_point)
+        block_data_list.append(np.expand_dims(block_data_sampled, 0))
+        block_label_list.append(np.expand_dims(block_label_sampled, 0))
+
     return np.concatenate(block_data_list, 0), \
-           np.concatenate(block_label_list, 0)
+        np.concatenate(block_label_list, 0)
 
 
 def room2blocks_plus(data_label, num_point, block_size, stride,
                      random_sample, sample_num, sample_aug):
     """ room2block with input filename and RGB preprocessing.
     """
-    data = data_label[:,0:6]
-    data[:,3:6] /= 255.0
-    label = data_label[:,-1].astype(np.uint8)
-    
+    data = data_label[:, 0:6]
+    data[:, 3:6] /= 255.0
+    label = data_label[:, -1].astype(np.uint8)
+
     return room2blocks(data, label, num_point, block_size, stride,
                        random_sample, sample_num, sample_aug)
-   
+
+
 def room2blocks_wrapper(data_label_filename, num_point, block_size=1.0, stride=1.0,
                         random_sample=False, sample_num=None, sample_aug=1):
     if data_label_filename[-3:] == 'txt':
@@ -232,29 +232,30 @@ def room2blocks_wrapper(data_label_filename, num_point, block_size=1.0, stride=1
     return room2blocks_plus(data_label, num_point, block_size, stride,
                             random_sample, sample_num, sample_aug)
 
+
 def room2blocks_plus_normalized(data_label, num_point, block_size, stride,
                                 random_sample, sample_num, sample_aug):
     """ room2block, with input filename and RGB preprocessing.
         for each block centralize XYZ, add normalized XYZ as 678 channels
     """
-    data = data_label[:,0:6]
-    data[:,3:6] /= 255.0
-    label = data_label[:,-1].astype(np.uint8)
-    max_room_x = max(data[:,0])
-    max_room_y = max(data[:,1])
-    max_room_z = max(data[:,2])
-    
+    data = data_label[:, 0:6]
+    data[:, 3:6] /= 255.0
+    label = data_label[:, -1].astype(np.uint8)
+    max_room_x = max(data[:, 0])
+    max_room_y = max(data[:, 1])
+    max_room_z = max(data[:, 2])
+
     data_batch, label_batch = room2blocks(data, label, num_point, block_size, stride,
                                           random_sample, sample_num, sample_aug)
     new_data_batch = np.zeros((data_batch.shape[0], num_point, 9))
     for b in range(data_batch.shape[0]):
-        new_data_batch[b, :, 6] = data_batch[b, :, 0]/max_room_x
-        new_data_batch[b, :, 7] = data_batch[b, :, 1]/max_room_y
-        new_data_batch[b, :, 8] = data_batch[b, :, 2]/max_room_z
+        new_data_batch[b, :, 6] = data_batch[b, :, 0] / max_room_x
+        new_data_batch[b, :, 7] = data_batch[b, :, 1] / max_room_y
+        new_data_batch[b, :, 8] = data_batch[b, :, 2] / max_room_z
         minx = min(data_batch[b, :, 0])
         miny = min(data_batch[b, :, 1])
-        data_batch[b, :, 0] -= (minx+block_size/2)
-        data_batch[b, :, 1] -= (miny+block_size/2)
+        data_batch[b, :, 0] -= (minx + block_size / 2)
+        data_batch[b, :, 1] -= (miny + block_size / 2)
     new_data_batch[:, :, 0:6] = data_batch
     return new_data_batch, label_batch
 
@@ -270,6 +271,7 @@ def room2blocks_wrapper_normalized(data_label_filename, num_point, block_size=1.
         exit()
     return room2blocks_plus_normalized(data_label, num_point, block_size, stride,
                                        random_sample, sample_num, sample_aug)
+
 
 def room2samples(data, label, sample_num_point):
     """ Prepare whole room samples.
@@ -287,7 +289,7 @@ def room2samples(data, label, sample_num_point):
     """
     N = data.shape[0]
     order = np.arange(N)
-    np.random.shuffle(order) 
+    np.random.shuffle(order)
     data = data[order, :]
     label = label[order]
 
@@ -296,39 +298,40 @@ def room2samples(data, label, sample_num_point):
     sample_labels = np.zeros((batch_num, sample_num_point, 1))
 
     for i in range(batch_num):
-        beg_idx = i*sample_num_point
-        end_idx = min((i+1)*sample_num_point, N)
+        beg_idx = i * sample_num_point
+        end_idx = min((i + 1) * sample_num_point, N)
         num = end_idx - beg_idx
-        sample_datas[i,0:num,:] = data[beg_idx:end_idx, :]
-        sample_labels[i,0:num,0] = label[beg_idx:end_idx]
+        sample_datas[i, 0:num, :] = data[beg_idx:end_idx, :]
+        sample_labels[i, 0:num, 0] = label[beg_idx:end_idx]
         if num < sample_num_point:
             makeup_indices = np.random.choice(N, sample_num_point - num)
-            sample_datas[i,num:,:] = data[makeup_indices, :]
-            sample_labels[i,num:,0] = label[makeup_indices]
+            sample_datas[i, num:, :] = data[makeup_indices, :]
+            sample_labels[i, num:, 0] = label[makeup_indices]
     return sample_datas, sample_labels
+
 
 def room2samples_plus_normalized(data_label, num_point):
     """ room2sample, with input filename and RGB preprocessing.
         for each block centralize XYZ, add normalized XYZ as 678 channels
     """
-    data = data_label[:,0:6]
-    data[:,3:6] /= 255.0
-    label = data_label[:,-1].astype(np.uint8)
-    max_room_x = max(data[:,0])
-    max_room_y = max(data[:,1])
-    max_room_z = max(data[:,2])
-    #print(max_room_x, max_room_y, max_room_z)
-    
+    data = data_label[:, 0:6]
+    data[:, 3:6] /= 255.0
+    label = data_label[:, -1].astype(np.uint8)
+    max_room_x = max(data[:, 0])
+    max_room_y = max(data[:, 1])
+    max_room_z = max(data[:, 2])
+    # print(max_room_x, max_room_y, max_room_z)
+
     data_batch, label_batch = room2samples(data, label, num_point)
     new_data_batch = np.zeros((data_batch.shape[0], num_point, 9))
     for b in range(data_batch.shape[0]):
-        new_data_batch[b, :, 6] = data_batch[b, :, 0]/max_room_x
-        new_data_batch[b, :, 7] = data_batch[b, :, 1]/max_room_y
-        new_data_batch[b, :, 8] = data_batch[b, :, 2]/max_room_z
-        #minx = min(data_batch[b, :, 0])
-        #miny = min(data_batch[b, :, 1])
-        #data_batch[b, :, 0] -= (minx+block_size/2)
-        #data_batch[b, :, 1] -= (miny+block_size/2)
+        new_data_batch[b, :, 6] = data_batch[b, :, 0] / max_room_x
+        new_data_batch[b, :, 7] = data_batch[b, :, 1] / max_room_y
+        new_data_batch[b, :, 8] = data_batch[b, :, 2] / max_room_z
+        # minx = min(data_batch[b, :, 0])
+        # miny = min(data_batch[b, :, 1])
+        # data_batch[b, :, 0] -= (minx+block_size/2)
+        # data_batch[b, :, 1] -= (miny+block_size/2)
     new_data_batch[:, :, 0:6] = data_batch
     return new_data_batch, label_batch
 
@@ -366,7 +369,7 @@ def collect_bounding_box(anno_path, out_filename):
 
     for f in glob.glob(os.path.join(anno_path, '*.txt')):
         cls = os.path.basename(f).split('_')[0]
-        if cls not in g_classes: # note: in some room there is 'staris' class..
+        if cls not in g_classes:  # note: in some room there is 'staris' class..
             cls = 'clutter'
         points = np.loadtxt(f)
         label = g_class2label[cls]
@@ -379,16 +382,17 @@ def collect_bounding_box(anno_path, out_filename):
 
     bbox_label = np.concatenate(bbox_label_list, 0)
     room_xyz_min = np.amin(bbox_label[:, 0:3], axis=0)
-    bbox_label[:, 0:3] -= room_xyz_min 
-    bbox_label[:, 3:6] -= room_xyz_min 
+    bbox_label[:, 0:3] -= room_xyz_min
+    bbox_label[:, 3:6] -= room_xyz_min
 
     fout = open(out_filename, 'w')
     for i in range(bbox_label.shape[0]):
         fout.write('%f %f %f %f %f %f %d\n' % \
-                      (bbox_label[i,0], bbox_label[i,1], bbox_label[i,2],
-                       bbox_label[i,3], bbox_label[i,4], bbox_label[i,5],
-                       bbox_label[i,6]))
+                   (bbox_label[i, 0], bbox_label[i, 1], bbox_label[i, 2],
+                    bbox_label[i, 3], bbox_label[i, 4], bbox_label[i, 5],
+                    bbox_label[i, 6]))
     fout.close()
+
 
 def bbox_label_to_obj(input_filename, out_filename_prefix, easy_view=False):
     """ Visualization of bounding boxes.
@@ -404,13 +408,13 @@ def bbox_label_to_obj(input_filename, out_filename_prefix, easy_view=False):
     bbox_label = np.loadtxt(input_filename)
     bbox = bbox_label[:, 0:6]
     label = bbox_label[:, -1].astype(int)
-    v_cnt = 0 # count vertex
-    ins_cnt = 0 # count instance
+    v_cnt = 0  # count vertex
+    ins_cnt = 0  # count instance
     for i in range(bbox.shape[0]):
         if easy_view and (label[i] not in g_easy_view_labels):
             continue
-        obj_filename = out_filename_prefix+'_'+g_classes[label[i]]+'_'+str(ins_cnt)+'.obj'
-        mtl_filename = out_filename_prefix+'_'+g_classes[label[i]]+'_'+str(ins_cnt)+'.mtl'
+        obj_filename = out_filename_prefix + '_' + g_classes[label[i]] + '_' + str(ins_cnt) + '.obj'
+        mtl_filename = out_filename_prefix + '_' + g_classes[label[i]] + '_' + str(ins_cnt) + '.mtl'
         fout_obj = open(obj_filename, 'w')
         fout_mtl = open(mtl_filename, 'w')
         fout_obj.write('mtllib %s\n' % (os.path.basename(mtl_filename)))
@@ -426,34 +430,36 @@ def bbox_label_to_obj(input_filename, out_filename_prefix, easy_view=False):
 
         material = 'material%d' % (ins_cnt)
         fout_obj.write('usemtl %s\n' % (material))
-        fout_obj.write('v %f %f %f\n' % (x,y,z+c))
-        fout_obj.write('v %f %f %f\n' % (x,y+b,z+c))
-        fout_obj.write('v %f %f %f\n' % (x+a,y+b,z+c))
-        fout_obj.write('v %f %f %f\n' % (x+a,y,z+c))
-        fout_obj.write('v %f %f %f\n' % (x,y,z))
-        fout_obj.write('v %f %f %f\n' % (x,y+b,z))
-        fout_obj.write('v %f %f %f\n' % (x+a,y+b,z))
-        fout_obj.write('v %f %f %f\n' % (x+a,y,z))
+        fout_obj.write('v %f %f %f\n' % (x, y, z + c))
+        fout_obj.write('v %f %f %f\n' % (x, y + b, z + c))
+        fout_obj.write('v %f %f %f\n' % (x + a, y + b, z + c))
+        fout_obj.write('v %f %f %f\n' % (x + a, y, z + c))
+        fout_obj.write('v %f %f %f\n' % (x, y, z))
+        fout_obj.write('v %f %f %f\n' % (x, y + b, z))
+        fout_obj.write('v %f %f %f\n' % (x + a, y + b, z))
+        fout_obj.write('v %f %f %f\n' % (x + a, y, z))
         fout_obj.write('g default\n')
-        v_cnt = 0 # for individual box
-        fout_obj.write('f %d %d %d %d\n' % (4+v_cnt, 3+v_cnt, 2+v_cnt, 1+v_cnt))
-        fout_obj.write('f %d %d %d %d\n' % (1+v_cnt, 2+v_cnt, 6+v_cnt, 5+v_cnt))
-        fout_obj.write('f %d %d %d %d\n' % (7+v_cnt, 6+v_cnt, 2+v_cnt, 3+v_cnt))
-        fout_obj.write('f %d %d %d %d\n' % (4+v_cnt, 8+v_cnt, 7+v_cnt, 3+v_cnt))
-        fout_obj.write('f %d %d %d %d\n' % (5+v_cnt, 8+v_cnt, 4+v_cnt, 1+v_cnt))
-        fout_obj.write('f %d %d %d %d\n' % (5+v_cnt, 6+v_cnt, 7+v_cnt, 8+v_cnt))
+        v_cnt = 0  # for individual box
+        fout_obj.write('f %d %d %d %d\n' % (4 + v_cnt, 3 + v_cnt, 2 + v_cnt, 1 + v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (1 + v_cnt, 2 + v_cnt, 6 + v_cnt, 5 + v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (7 + v_cnt, 6 + v_cnt, 2 + v_cnt, 3 + v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (4 + v_cnt, 8 + v_cnt, 7 + v_cnt, 3 + v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (5 + v_cnt, 8 + v_cnt, 4 + v_cnt, 1 + v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (5 + v_cnt, 6 + v_cnt, 7 + v_cnt, 8 + v_cnt))
         fout_obj.write('\n')
 
         fout_mtl.write('newmtl %s\n' % (material))
         fout_mtl.write('Kd %f %f %f\n' % (color[0], color[1], color[2]))
         fout_mtl.write('\n')
         fout_obj.close()
-        fout_mtl.close() 
+        fout_mtl.close()
 
         v_cnt += 8
         ins_cnt += 1
 
-def bbox_label_to_obj_room(input_filename, out_filename_prefix, easy_view=False, permute=None, center=False, exclude_table=False):
+
+def bbox_label_to_obj_room(input_filename, out_filename_prefix, easy_view=False, permute=None, center=False,
+                           exclude_table=False):
     """ Visualization of bounding boxes.
     
     Args:
@@ -469,24 +475,24 @@ def bbox_label_to_obj_room(input_filename, out_filename_prefix, easy_view=False,
     bbox_label = np.loadtxt(input_filename)
     bbox = bbox_label[:, 0:6]
     if permute is not None:
-        assert(len(permute)==3)
+        assert (len(permute) == 3)
         permute = np.array(permute)
-        bbox[:,0:3] = bbox[:,permute]
-        bbox[:,3:6] = bbox[:,permute+3]
+        bbox[:, 0:3] = bbox[:, permute]
+        bbox[:, 3:6] = bbox[:, permute + 3]
     if center:
-        xyz_max = np.amax(bbox[:,3:6], 0)
-        bbox[:,0:3] -= (xyz_max/2.0)
-        bbox[:,3:6] -= (xyz_max/2.0)
-        bbox /= np.max(xyz_max/2.0)
+        xyz_max = np.amax(bbox[:, 3:6], 0)
+        bbox[:, 0:3] -= (xyz_max / 2.0)
+        bbox[:, 3:6] -= (xyz_max / 2.0)
+        bbox /= np.max(xyz_max / 2.0)
     label = bbox_label[:, -1].astype(int)
-    obj_filename = out_filename_prefix+'.obj' 
-    mtl_filename = out_filename_prefix+'.mtl'
+    obj_filename = out_filename_prefix + '.obj'
+    mtl_filename = out_filename_prefix + '.mtl'
 
     fout_obj = open(obj_filename, 'w')
     fout_mtl = open(mtl_filename, 'w')
     fout_obj.write('mtllib %s\n' % (os.path.basename(mtl_filename)))
-    v_cnt = 0 # count vertex
-    ins_cnt = 0 # count instance
+    v_cnt = 0  # count vertex
+    ins_cnt = 0  # count instance
     for i in range(bbox.shape[0]):
         if easy_view and (label[i] not in g_easy_view_labels):
             continue
@@ -504,21 +510,21 @@ def bbox_label_to_obj_room(input_filename, out_filename_prefix, easy_view=False,
 
         material = 'material%d' % (ins_cnt)
         fout_obj.write('usemtl %s\n' % (material))
-        fout_obj.write('v %f %f %f\n' % (x,y,z+c))
-        fout_obj.write('v %f %f %f\n' % (x,y+b,z+c))
-        fout_obj.write('v %f %f %f\n' % (x+a,y+b,z+c))
-        fout_obj.write('v %f %f %f\n' % (x+a,y,z+c))
-        fout_obj.write('v %f %f %f\n' % (x,y,z))
-        fout_obj.write('v %f %f %f\n' % (x,y+b,z))
-        fout_obj.write('v %f %f %f\n' % (x+a,y+b,z))
-        fout_obj.write('v %f %f %f\n' % (x+a,y,z))
+        fout_obj.write('v %f %f %f\n' % (x, y, z + c))
+        fout_obj.write('v %f %f %f\n' % (x, y + b, z + c))
+        fout_obj.write('v %f %f %f\n' % (x + a, y + b, z + c))
+        fout_obj.write('v %f %f %f\n' % (x + a, y, z + c))
+        fout_obj.write('v %f %f %f\n' % (x, y, z))
+        fout_obj.write('v %f %f %f\n' % (x, y + b, z))
+        fout_obj.write('v %f %f %f\n' % (x + a, y + b, z))
+        fout_obj.write('v %f %f %f\n' % (x + a, y, z))
         fout_obj.write('g default\n')
-        fout_obj.write('f %d %d %d %d\n' % (4+v_cnt, 3+v_cnt, 2+v_cnt, 1+v_cnt))
-        fout_obj.write('f %d %d %d %d\n' % (1+v_cnt, 2+v_cnt, 6+v_cnt, 5+v_cnt))
-        fout_obj.write('f %d %d %d %d\n' % (7+v_cnt, 6+v_cnt, 2+v_cnt, 3+v_cnt))
-        fout_obj.write('f %d %d %d %d\n' % (4+v_cnt, 8+v_cnt, 7+v_cnt, 3+v_cnt))
-        fout_obj.write('f %d %d %d %d\n' % (5+v_cnt, 8+v_cnt, 4+v_cnt, 1+v_cnt))
-        fout_obj.write('f %d %d %d %d\n' % (5+v_cnt, 6+v_cnt, 7+v_cnt, 8+v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (4 + v_cnt, 3 + v_cnt, 2 + v_cnt, 1 + v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (1 + v_cnt, 2 + v_cnt, 6 + v_cnt, 5 + v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (7 + v_cnt, 6 + v_cnt, 2 + v_cnt, 3 + v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (4 + v_cnt, 8 + v_cnt, 7 + v_cnt, 3 + v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (5 + v_cnt, 8 + v_cnt, 4 + v_cnt, 1 + v_cnt))
+        fout_obj.write('f %d %d %d %d\n' % (5 + v_cnt, 6 + v_cnt, 7 + v_cnt, 8 + v_cnt))
         fout_obj.write('\n')
 
         fout_mtl.write('newmtl %s\n' % (material))
@@ -529,7 +535,7 @@ def bbox_label_to_obj_room(input_filename, out_filename_prefix, easy_view=False,
         ins_cnt += 1
 
     fout_obj.close()
-    fout_mtl.close() 
+    fout_mtl.close()
 
 
 def collect_point_bounding_box(anno_path, out_filename, file_format):
@@ -557,42 +563,40 @@ def collect_point_bounding_box(anno_path, out_filename, file_format):
 
     for f in glob.glob(os.path.join(anno_path, '*.txt')):
         cls = os.path.basename(f).split('_')[0]
-        if cls not in g_classes: # note: in some room there is 'staris' class..
+        if cls not in g_classes:  # note: in some room there is 'staris' class..
             cls = 'clutter'
-        points = np.loadtxt(f) # Nx6
-        label = g_class2label[cls] # N,
+        points = np.loadtxt(f)  # Nx6
+        label = g_class2label[cls]  # N,
         # Compute tightest axis aligned bounding box
-        xyz_min = np.amin(points[:, 0:3], axis=0) # 3,
-        xyz_max = np.amax(points[:, 0:3], axis=0) # 3,
+        xyz_min = np.amin(points[:, 0:3], axis=0)  # 3,
+        xyz_max = np.amax(points[:, 0:3], axis=0)  # 3,
         xyz_center = (xyz_min + xyz_max) / 2
         dimension = (xyz_max - xyz_min) / 2
 
-        xyz_offsets = xyz_center - points[:,0:3] # Nx3
-        dimensions = np.ones((points.shape[0],3)) * dimension # Nx3
-        labels = np.ones((points.shape[0],1)) * label # N
+        xyz_offsets = xyz_center - points[:, 0:3]  # Nx3
+        dimensions = np.ones((points.shape[0], 3)) * dimension  # Nx3
+        labels = np.ones((points.shape[0], 1)) * label  # N
         point_bbox_list.append(np.concatenate([points, labels,
-                                           xyz_offsets, dimensions], 1)) # Nx13
+                                               xyz_offsets, dimensions], 1))  # Nx13
 
-    point_bbox = np.concatenate(point_bbox_list, 0) # KxNx13
+    point_bbox = np.concatenate(point_bbox_list, 0)  # KxNx13
     room_xyz_min = np.amin(point_bbox[:, 0:3], axis=0)
-    point_bbox[:, 0:3] -= room_xyz_min 
+    point_bbox[:, 0:3] -= room_xyz_min
 
     if file_format == 'txt':
         fout = open(out_filename, 'w')
         for i in range(point_bbox.shape[0]):
             fout.write('%f %f %f %d %d %d %d %f %f %f %f %f %f\n' % \
-                          (point_bbox[i,0], point_bbox[i,1], point_bbox[i,2],
-                           point_bbox[i,3], point_bbox[i,4], point_bbox[i,5],
-                           point_bbox[i,6],
-                           point_bbox[i,7], point_bbox[i,8], point_bbox[i,9],
-                           point_bbox[i,10], point_bbox[i,11], point_bbox[i,12]))
-        
+                       (point_bbox[i, 0], point_bbox[i, 1], point_bbox[i, 2],
+                        point_bbox[i, 3], point_bbox[i, 4], point_bbox[i, 5],
+                        point_bbox[i, 6],
+                        point_bbox[i, 7], point_bbox[i, 8], point_bbox[i, 9],
+                        point_bbox[i, 10], point_bbox[i, 11], point_bbox[i, 12]))
+
         fout.close()
     elif file_format == 'numpy':
         np.save(out_filename, point_bbox)
     else:
         print('ERROR!! Unknown file format: %s, please use txt or numpy.' % \
-            (file_format))
+              (file_format))
         exit()
-
-

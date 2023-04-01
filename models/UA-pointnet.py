@@ -54,8 +54,17 @@ class get_model(nn.Module):
             l0_points_1_T, l4_points_T = self.FG(Target)
             F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
             F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
-
             return F1_pred_S, F2_pred_S, F1_pred_T, F2_pred_T
+        elif step == 'test':
+            # 处理Target_xyz
+            transform = self.PA(Target_xyz)
+            Target = transform_Function.apply(Target_xyz, transform)
+
+            l0_points_1_T, l4_points_T = self.FG(Target)
+            F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
+            F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
+
+            return F1_pred_T, F2_pred_T
 
 
 class SetAbstraction(nn.Module):
@@ -154,7 +163,7 @@ class get_loss(nn.Module):
     def forward(self, pred1, pred2, target, weight):
         total_loss1 = F.nll_loss(pred1, target, weight=weight)
         total_loss2 = F.nll_loss(pred2, target, weight=weight)
-        return total_loss1 + total_loss2
+        return (total_loss1 + total_loss2)/2
 
 
 class EMD_loss(nn.Module):  # emd_loss
@@ -162,7 +171,8 @@ class EMD_loss(nn.Module):  # emd_loss
         super(EMD_loss, self).__init__()
 
     def forward(self, Target_Z, Source_Z):
-        emd_loss = torch.min(torch.sqrt(torch.sum(torch.pow(Target_Z - Source_Z, 2))))
+        emd_loss = torch.min(torch.norm(Target_Z - Source_Z, dim=1)/2)
+        # emd_loss = torch.min(torch.sum(torch.sqrt(torch.pow(Target_Z - Source_Z, 2)/2)))
 
         return emd_loss
 

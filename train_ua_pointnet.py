@@ -93,7 +93,7 @@ def main(args):
     Source_Scene_root = 'data/Source_Scene_Point_Clouds/'
     Target_Scene_root = 'data/Target_Scene_Point_Clouds/'
     Test_Scene_root = 'data/Validationset/'
-    NUM_CLASSES = 13
+    NUM_CLASSES = 9
     NUM_POINT = args.npoint
     BATCH_SIZE = args.batch_size
 
@@ -103,10 +103,10 @@ def main(args):
     # print("start loading test data ...")
     TEST_DATASET = TestDataLoader(Test_root=Test_Scene_root, num_point=NUM_POINT, block_size=1.0, sample_rate=1.0, transform=None)
 
-    trainDataLoader = torch.utils.data.DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE, shuffle=True, num_workers=10,
+    trainDataLoader = torch.utils.data.DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE, shuffle=True, num_workers=12,
                                                   pin_memory=True, drop_last=True,
                                                   worker_init_fn=lambda x: np.random.seed(x + int(time.time())))
-    testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=BATCH_SIZE, shuffle=False, num_workers=10,
+    testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=BATCH_SIZE, shuffle=False, num_workers=12,
                                                  pin_memory=True, drop_last=True)
     weights = torch.Tensor(TRAIN_DATASET.Source_labelweights).cuda()
 
@@ -182,8 +182,12 @@ def main(args):
         total_correct = 0
         total_seen = 0
         loss_sum = 0
+        loss_emd_sum = 0
+        loss_max_mcd = 0
+        loss_min_mcd = 0
+
         classifier = classifier.train()
-        alpha, beta = 1, 1  # TODO：这里需要调试
+        alpha, beta = 0.01, 0.01  # TODO：这里需要调试
 
         torch.autograd.set_detect_anomaly(True)
 
@@ -264,9 +268,15 @@ def main(args):
             total_correct += correct
             total_seen += (BATCH_SIZE * NUM_POINT)
             loss_sum += loss_ce1
+            loss_emd_sum += EMD_loss
+            loss_max_mcd += max_MCD_loss
+            loss_min_mcd += min_MCD_loss
 
         log_string('Training mean loss: %f' % (loss_sum / num_batches))
         log_string('Training accuracy: %f' % (total_correct / float(total_seen)))
+        log_string('Training emd loss: %f' % (loss_emd_sum / num_batches))
+        log_string('Training max_mcd loss: %f' % (loss_max_mcd / num_batches))
+        log_string('Training min_mcd loss: %f' % (loss_min_mcd / num_batches))
 
         if epoch % 5 == 0:
             logger.info('Save model...')
@@ -299,16 +309,21 @@ def main(args):
                 points, target = points.float().cuda(), target.long().cuda()
                 points = points.transpose(2, 1)
 
-                seg_pred_1, trans_feat = classifier(points, _, step='Step1')
+                seg_pred_1, seg_pred_2 = classifier(points, points, step='Step1')
                 pred_val = seg_pred_1.contiguous().cpu().data.numpy()
                 seg_pred_1 = seg_pred_1.contiguous().view(-1, NUM_CLASSES)
 
+                pred_val2 = seg_pred_2.contiguous().cpu().data.numpy()
+                seg_pred_2 = seg_pred_2.contiguous().view(-1, NUM_CLASSES)
+
                 batch_label = target.cpu().data.numpy()
                 target = target.view(-1, 1)[:, 0]
-                loss = criterion(seg_pred_1, target, trans_feat, weights)
+                loss = criterion(seg_pred_1, seg_pred_2, target, weights)
                 loss_sum += loss
                 pred_val = np.argmax(pred_val, 2)
-                correct = np.sum((pred_val == batch_label))
+                pred_val2 = np.argmax(pred_val2, 2)
+                # correct = np.sum((pred_val == batch_label))
+                correct = (np.sum(pred_val == batch_label) + np.sum(pred_val2 == batch_label)) / 2
                 total_correct += correct
                 total_seen += (BATCH_SIZE * NUM_POINT)
                 tmp, _ = np.histogram(batch_label, range(NUM_CLASSES + 1))

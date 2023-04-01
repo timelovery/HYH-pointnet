@@ -1,13 +1,9 @@
-ceiling
-floor
-wall
-beam
-column
-window
-door
-table
-chair
-sofa
-bookcase
-board
-clutter
+unlabeled
+man-made terrain
+natural terrain
+high vegetation
+low vegetation
+buildings
+hard scape
+scanning artefacts
+cars

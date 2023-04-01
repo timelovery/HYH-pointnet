@@ -75,7 +75,6 @@ class S3DISDataset(Dataset):
         selected_points[:, 1] = selected_points[:, 1] - center[1]
         selected_points[:, 3:6] /= 255.0
         current_points[:, 0:6] = selected_points
-
         current_labels = labels[selected_point_idxs]
         if self.transform is not None:
             current_points, current_labels = self.transform(current_points, current_labels)
@@ -118,11 +117,11 @@ class ScannetDatasetWholeScene():
             labelweights += tmp
         labelweights = labelweights.astype(np.float32)
         labelweights = labelweights / np.sum(labelweights)
-        self.labelweights = np.power(np.amax(labelweights) / labelweights, 1 / 3.0)
+        self.labelweights = np.power(np.amax(labelweights) / labelweights, 1 / 3.0)  # [13]
 
     def __getitem__(self, index):
         point_set_ini = self.scene_points_list[index]
-        points = point_set_ini[:,:6]
+        points = point_set_ini[:, :6]
         labels = self.semantic_labels_list[index]
         coord_min, coord_max = np.amin(points, axis=0)[:3], np.amax(points, axis=0)[:3]
         grid_x = int(np.ceil(float(coord_max[0] - coord_min[0] - self.block_size) / self.stride) + 1)

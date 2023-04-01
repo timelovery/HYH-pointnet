@@ -26,13 +26,13 @@ class TrainDataLoader(Dataset):
 
         Source_num_point_all = []
         Target_num_point_all = []
-        Source_labelweights = np.zeros(13)
+        Source_labelweights = np.zeros(9)
 
         for Source_area_name in tqdm(Source_areas, total=len(Source_areas)):
             area_path = os.path.join(Source_root, Source_area_name)
             area_data = np.load(area_path)  # xyzrgbl, N*7
             points, labels = area_data[:, 0:6], area_data[:, 6]  # xyzrgb, N*6; l, N
-            tmp, _ = np.histogram(labels, range(14))
+            tmp, _ = np.histogram(labels, range(10))
             Source_labelweights += tmp
             coord_min, coord_max = np.amin(points, axis=0)[:3], np.amax(points, axis=0)[:3]
             self.Source_points.append(points), self.Source_labels.append(labels)
@@ -143,13 +143,13 @@ class TestDataLoader(Dataset):
         self.Source_coord_min, self.Source_coord_max = [], []
 
         Source_num_point_all = []
-        Source_labelweights = np.zeros(13)
+        Source_labelweights = np.zeros(9)
 
         for Source_area_name in tqdm(Source_areas, total=len(Source_areas)):
             area_path = os.path.join(Test_root, Source_area_name)
             area_data = np.load(area_path)  # xyzrgbl, N*7
             points, labels = area_data[:, 0:6], area_data[:, 6]  # xyzrgb, N*6; l, N
-            tmp, _ = np.histogram(labels, range(14))
+            tmp, _ = np.histogram(labels, range(10))
             Source_labelweights += tmp
             coord_min, coord_max = np.amin(points, axis=0)[:3], np.amax(points, axis=0)[:3]
             self.Source_points.append(points), self.Source_labels.append(labels)
@@ -216,3 +216,68 @@ class TestDataLoader(Dataset):
 
     def __len__(self):
         return len(self.Source_area_idxs)
+
+
+class testsetWholeScene():
+    # prepare to give prediction on each points
+    def __init__(self, root, block_points=4096, stride=0.5, block_size=1.0, padding=0.001):
+        self.block_points = block_points
+        self.block_size = block_size
+        self.padding = padding
+        self.root = root
+        self.stride = stride
+        self.scene_points_num = []
+        self.file_list = sorted(os.listdir(root))
+        self.scene_points_list = []
+        self.room_coord_min, self.room_coord_max = [], []
+        for file in self.file_list:
+            data = np.load(root + file)
+            points = data[:, :3]
+            self.scene_points_list.append(data[:, :6])
+            coord_min, coord_max = np.amin(points, axis=0)[:3], np.amax(points, axis=0)[:3]
+            self.room_coord_min.append(coord_min), self.room_coord_max.append(coord_max)
+
+    def __getitem__(self, index):
+        point_set_ini = self.scene_points_list[index]
+        points = point_set_ini[:, :6]
+        coord_min, coord_max = np.amin(points, axis=0)[:3], np.amax(points, axis=0)[:3]
+        grid_x = int(np.ceil(float(coord_max[0] - coord_min[0] - self.block_size) / self.stride) + 1)
+        grid_y = int(np.ceil(float(coord_max[1] - coord_min[1] - self.block_size) / self.stride) + 1)
+        data_room, index_room = np.array([]), np.array([])
+        for index_y in range(0, grid_y):
+            for index_x in range(0, grid_x):
+                s_x = coord_min[0] + index_x * self.stride
+                e_x = min(s_x + self.block_size, coord_max[0])
+                s_x = e_x - self.block_size
+                s_y = coord_min[1] + index_y * self.stride
+                e_y = min(s_y + self.block_size, coord_max[1])
+                s_y = e_y - self.block_size
+                point_idxs = np.where(
+                    (points[:, 0] >= s_x - self.padding) & (points[:, 0] <= e_x + self.padding) & (
+                                points[:, 1] >= s_y - self.padding) & (
+                            points[:, 1] <= e_y + self.padding))[0]
+                if point_idxs.size == 0:
+                    continue
+                num_batch = int(np.ceil(point_idxs.size / self.block_points))
+                point_size = int(num_batch * self.block_points)
+                replace = False if (point_size - point_idxs.size <= point_idxs.size) else True
+                point_idxs_repeat = np.random.choice(point_idxs, point_size - point_idxs.size, replace=replace)
+                point_idxs = np.concatenate((point_idxs, point_idxs_repeat))
+                np.random.shuffle(point_idxs)
+                data_batch = points[point_idxs, :]
+                normlized_xyz = np.zeros((point_size, 3))
+                normlized_xyz[:, 0] = data_batch[:, 0] / coord_max[0]
+                normlized_xyz[:, 1] = data_batch[:, 1] / coord_max[1]
+                normlized_xyz[:, 2] = data_batch[:, 2] / coord_max[2]
+                data_batch[:, 0] = data_batch[:, 0] - (s_x + self.block_size / 2.0)
+                data_batch[:, 1] = data_batch[:, 1] - (s_y + self.block_size / 2.0)
+                data_batch[:, 3:6] /= 255.0
+                data_batch = np.concatenate((data_batch, normlized_xyz), axis=1)
+                data_room = np.vstack([data_room, data_batch]) if data_room.size else data_batch
+                index_room = np.hstack([index_room, point_idxs]) if index_room.size else point_idxs
+        data_room = data_room.reshape((-1, self.block_points, data_room.shape[1]))
+        index_room = index_room.reshape((-1, self.block_points))
+        return data_room, index_room
+
+    def __len__(self):
+        return len(self.scene_points_list)
