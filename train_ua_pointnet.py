@@ -99,9 +99,9 @@ def main(args):
 
     print("start loading training data ...")
     TRAIN_DATASET = TrainDataLoader(Source_root=Source_Scene_root, Target_root=Target_Scene_root, num_point=NUM_POINT,
-                                block_size=1.0, sample_rate=1.0, transform=None)
-    # print("start loading test data ...")
-    TEST_DATASET = TestDataLoader(Test_root=Test_Scene_root, num_point=NUM_POINT, block_size=1.0, sample_rate=1.0, transform=None)
+                                block_size=3.0, sample_rate=1.0, transform=None)
+    print("start loading test data ...")
+    TEST_DATASET = TestDataLoader(Test_root=Test_Scene_root, num_point=NUM_POINT, block_size=3.0, sample_rate=1.0, transform=None)
 
     trainDataLoader = torch.utils.data.DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE, shuffle=True, num_workers=12,
                                                   pin_memory=True, drop_last=True,
@@ -187,7 +187,7 @@ def main(args):
         loss_min_mcd = 0
 
         classifier = classifier.train()
-        alpha, beta = 0.01, 0.01  # TODO：这里需要调试
+        alpha, beta = 1, 1  # TODO：这里需要调试
 
         torch.autograd.set_detect_anomaly(True)
 
@@ -197,12 +197,12 @@ def main(args):
 
             Source_points = Source_points.data.numpy()
             """由于我这里要进行数据对齐，因此感觉不应该随机旋转点云"""
-            # Source_points[:, :, :3] = provider.rotate_point_cloud_z(Source_points[:, :, :3])
+            # Source_points[:, :, :3] = provider.rotate_point_cloud_z(Source_points[:, :, :3])  # 随机旋转点云只是为了增加数据量
             Source_points = torch.Tensor(Source_points)
             Source_points, Source_target = Source_points.float().cuda(), Source_target.long().cuda()
             Source_points = Source_points.transpose(2, 1)
             Target_points = Target_points.data.numpy()
-            # Target_points[:, :, :3] = provider.rotate_point_cloud_z(Target_points[:, :, :3])
+            # # Target_points[:, :, :3] = provider.rotate_point_cloud_z(Target_points[:, :, :3])
             Target_points = torch.Tensor(Target_points)
             Target_points = Target_points.float().cuda()
             Target_points = Target_points.transpose(2, 1)
@@ -217,8 +217,8 @@ def main(args):
             loss_ce1.backward()
 
             """步骤2"""
-            Source_z, Target_z = classifier(Source_points, Target_points, step='Step2')
-            EMD_loss = EMD(Target_z, Source_z)
+            Target_z = classifier(Source_points, Target_points, step='Step2')
+            EMD_loss = EMD(Target_z[:, 2, :], Source_points[:, 2, :])
             EMD_loss.backward()
 
             """步骤3"""
@@ -227,32 +227,32 @@ def main(args):
             Target_pred_2 = Target_pred_2.contiguous().view(-1, NUM_CLASSES)
             Source_pred_1 = Source_pred_1.contiguous().view(-1, NUM_CLASSES)
             Source_pred_2 = Source_pred_2.contiguous().view(-1, NUM_CLASSES)
-            loss_ce = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
-            ADV_loss = ADV(Target_pred_1, Target_pred_2)
-            max_MCD_loss = loss_ce - alpha * ADV_loss
             for param in classifier.PA.parameters():
                 param.requires_grad = False
             for param in classifier.FG.parameters():
                 param.requires_grad = False
+            loss_ce = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
+            ADV_loss = ADV(Target_pred_1, Target_pred_2)
+            max_MCD_loss = loss_ce - alpha * ADV_loss
             max_MCD_loss.backward()
             for param in classifier.PA.parameters():
                 param.requires_grad = True
             for param in classifier.FG.parameters():
                 param.requires_grad = True
-
+            #
             """步骤4"""
             Source_pred_1, Source_pred_2, Target_pred_1, Target_pred_2 = classifier(Source_points, Target_points, step='Step4')
             Target_pred_1 = Target_pred_1.contiguous().view(-1, NUM_CLASSES)
             Target_pred_2 = Target_pred_2.contiguous().view(-1, NUM_CLASSES)
             Source_pred_1 = Source_pred_1.contiguous().view(-1, NUM_CLASSES)
             Source_pred_2 = Source_pred_2.contiguous().view(-1, NUM_CLASSES)
-            loss_ce = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
-            ADV_loss = ADV(Target_pred_1, Target_pred_2)
-            min_MCD_loss = loss_ce + beta * ADV_loss
             for param in classifier.F1.parameters():
                 param.requires_grad = False
             for param in classifier.F2.parameters():
                 param.requires_grad = False
+            loss_ce = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
+            ADV_loss = ADV(Target_pred_1, Target_pred_2)
+            min_MCD_loss = loss_ce + beta * ADV_loss
             min_MCD_loss.backward()
             for param in classifier.F1.parameters():
                 param.requires_grad = True

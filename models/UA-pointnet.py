@@ -1,3 +1,5 @@
+import pdb
+
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
@@ -8,9 +10,9 @@ class get_model(nn.Module):
     def __init__(self, num_classes):
         super(get_model, self).__init__()
         self.PA = PW_ATM()  # 数据对齐
-        self.FG = SetAbstraction()  # 提取器
-        self.F1 = FeatureProgation(num_classes)  # 分类器F1
-        self.F2 = FeatureProgation(num_classes)  # 分类器F2
+        self.FG = SetAbstractionandFeatureProgation()  # 提取器
+        self.F1 = Classifier(num_classes)  # 分类器F1
+        self.F2 = Classifier(num_classes)  # 分类器F2
 
     def forward(self, Source_xyz, Target_xyz, step='Step1'):
         if step == 'Step1':
@@ -21,10 +23,10 @@ class get_model(nn.Module):
             return F1_pred_S, F2_pred_S  # 用来计算CE1和CE2
         elif step == 'Step2':
             transform = self.PA(Target_xyz)
-            Target = transform_Function.apply(Target_xyz, transform)
-            Source_z = Source_xyz[:, 2, :]
-            Target_z = Target[:, 2, :]
-            return Source_z, Target_z  # 用来计算EMD
+            # Target = transform_Function.apply(Target_xyz, transform)
+            # Target_xyz[:, 2, :] = Target_xyz[:, 2, :] * transform.squeeze()
+            # Target_z = Target_xyz[:, 2, :]
+            return transform  # 用来计算EMD
 
         elif step == 'Step3':
             # 处理Source_xyz
@@ -33,12 +35,15 @@ class get_model(nn.Module):
             F2_pred_S = self.F2(l0_points_1_S, l4_points_S)
             # 处理Target_xyz
             transform = self.PA(Target_xyz)
-            Target = transform_Function.apply(Target_xyz, transform)
-            # Target_xyz[:, 2, :] = Target_xyz[:, 2, :] * transform[:, :, 0]
+            # Target = transform_Function.apply(Target_xyz, transform)
+            # Target_xyz[:, 2, :] = Target_xyz[:, 2, :] * transform.squeeze()
 
-            l0_points_1_T, l4_points_T = self.FG(Target)
+            l0_points_1_T, l4_points_T = self.FG(transform)
             F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
+
             F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
+            # print(F1_pred_T)
+            # pdb.set_trace()
 
             return F1_pred_S, F2_pred_S, F1_pred_T, F2_pred_T
             # 用来计算ADV  # 用来计算EMD
@@ -49,32 +54,33 @@ class get_model(nn.Module):
             F2_pred_S = self.F2(l0_points_1_S, l4_points_S)
             # 处理Target_xyz
             transform = self.PA(Target_xyz)
-            Target = transform_Function.apply(Target_xyz, transform)
+            # Target = transform_Function.apply(Target_xyz, transform)
+            # Target_xyz[:, 2, :] = Target_xyz[:, 2, :] * transform.squeeze()
 
-            l0_points_1_T, l4_points_T = self.FG(Target)
+            l0_points_1_T, l4_points_T = self.FG(transform)
             F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
             F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
             return F1_pred_S, F2_pred_S, F1_pred_T, F2_pred_T
         elif step == 'test':
             # 处理Target_xyz
             transform = self.PA(Target_xyz)
-            Target = transform_Function.apply(Target_xyz, transform)
-
-            l0_points_1_T, l4_points_T = self.FG(Target)
+            # Target = transform_Function.apply(Target_xyz, transform)
+            # Target_xyz[:, 2, :] = Target_xyz[:, 2, :] * transform.squeeze()
+            l0_points_1_T, l4_points_T = self.FG(transform)
             F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
             F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
 
             return F1_pred_T, F2_pred_T
 
 
-class SetAbstraction(nn.Module):
+class SetAbstractionandFeatureProgation(nn.Module):
     def __init__(self):
-        super(SetAbstraction, self).__init__()
+        super(SetAbstractionandFeatureProgation, self).__init__()
         # 提取器
-        self.sa1 = PointNetSetAbstraction(1024, 0.1, 32, 9 + 3, [32, 32, 64], False, False)
-        self.sa2 = PointNetSetAbstraction(256, 0.2, 32, 64 + 3, [64, 64, 128], False, False)
-        self.sa3 = PointNetSetAbstraction(64, 0.4, 32, 128 + 3, [128, 128, 256], False, True)
-        self.sa4 = PointNetSetAbstraction(16, 0.8, 32, 256 + 3, [256, 256, 512], False, True)
+        self.sa1 = PointNetSetAbstraction(1024, 0.5, 32, 9 + 3, [32, 32, 64], False, True)
+        self.sa2 = PointNetSetAbstraction(256, 1.0, 32, 64 + 3, [64, 64, 128], False, True)
+        self.sa3 = PointNetSetAbstraction(64, 2.0, 32, 128 + 3, [128, 128, 256], False, True)
+        self.sa4 = PointNetSetAbstraction(16, 4.0, 32, 256 + 3, [256, 256, 512], False, True)
         self.fp4 = PointNetFeaturePropagation(768, [256, 256])
         self.fp3 = PointNetFeaturePropagation(384, [256, 256])
         self.fp2 = PointNetFeaturePropagation(320, [256, 128])
@@ -96,9 +102,9 @@ class SetAbstraction(nn.Module):
         return l0_points_1, l4_points
 
 
-class FeatureProgation(nn.Module):
+class Classifier(nn.Module):
     def __init__(self, num_classes):
-        super(FeatureProgation, self).__init__()
+        super(Classifier, self).__init__()
         # 分类器
 
         self.conv1 = nn.Conv1d(128, 128, 1)
@@ -133,6 +139,7 @@ class PW_ATM(nn.Module):
         batch_size = point_cloud.size(0)
         num_point = point_cloud.size(2)
         point_cloud = point_cloud.permute(0, 2, 1)  # point_cloud: [B, N, C]
+        orgin_point = point_cloud.clone()
 
         # Extract z-coordinates
         point_cloud = point_cloud[:, :, 2].unsqueeze(1).unsqueeze(1)  # [B, 1, 1, N]
@@ -152,8 +159,12 @@ class PW_ATM(nn.Module):
 
         transform = net.squeeze(dim=-1).squeeze(dim=-1)  # [B, 1, 1, N]
         transform = transform.permute(0, 3, 2, 1).squeeze(-1)
+        # transform = transform.permute(0,2,1)
+        orgin_point[:, :, 2] *= transform[:, :, 0]
+        orgin_point = orgin_point.permute(0, 2, 1)
 
-        return transform  # transform [B,N,1] 比例系数
+        # return transform  # transform [B,1,N] 比例系数
+        return orgin_point
 
 
 class get_loss(nn.Module):
@@ -163,7 +174,7 @@ class get_loss(nn.Module):
     def forward(self, pred1, pred2, target, weight):
         total_loss1 = F.nll_loss(pred1, target, weight=weight)
         total_loss2 = F.nll_loss(pred2, target, weight=weight)
-        return (total_loss1 + total_loss2)/2
+        return total_loss1 + total_loss2
 
 
 class EMD_loss(nn.Module):  # emd_loss
@@ -171,8 +182,9 @@ class EMD_loss(nn.Module):  # emd_loss
         super(EMD_loss, self).__init__()
 
     def forward(self, Target_Z, Source_Z):
-        emd_loss = torch.min(torch.norm(Target_Z - Source_Z, dim=1)/2)
+        emd_loss = torch.min(torch.norm(Target_Z - Source_Z, dim=1) / 2)
         # emd_loss = torch.min(torch.sum(torch.sqrt(torch.pow(Target_Z - Source_Z, 2)/2)))
+        # emd_loss = torch.norm(Target_Z-Source_Z, dim=1)/2
 
         return emd_loss
 
@@ -182,7 +194,8 @@ class ADV_loss(nn.Module):  # ADV_loss
         super(ADV_loss, self).__init__()
 
     def forward(self, F1_pred, F2_pred):
-        adv_loss = torch.sum(torch.abs(F1_pred - F2_pred)) / (F1_pred.size(0) * F1_pred.size(1))
+        adv_loss = torch.sum(torch.abs(torch.softmax(F1_pred, dim=1) - torch.softmax(F2_pred, dim=1)) / (
+                F1_pred.size(0) * F1_pred.size(1)))
 
         return adv_loss
 
@@ -206,14 +219,13 @@ class transform_Function(torch.autograd.Function):
 
 
 if __name__ == '__main__':
-
     model = get_model(13)
     # print(list(model.pw_atm.parameters()))
     # # model = pw_atm()
-    # xyz1 = torch.rand(6, 9, 1024)
-    # xyz2 = torch.rand(6, 9, 1024)
+    xyz1 = torch.rand(6, 9, 1024)
+    xyz2 = torch.rand(6, 9, 1024)
     # (model(xyz1, xyz2))
-    for m in model.modules():
-        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-            print(m.bias)
-    # print(model.linear.bias)
+    # for m in model.modules():
+    #     if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+    #         print(m.bias)
+    print(model)
