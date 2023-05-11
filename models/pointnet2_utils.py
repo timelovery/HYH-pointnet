@@ -180,8 +180,6 @@ def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False, FPS=
         fps_idx = farthest_point_sample(xyz, npoint)  # [B, npoint, C]  # 最远距离采样
     else:
         fps_idx = random_point_sample(xyz, npoint)  # [B, npoint, C]  # 随机采样
-    # fps_idx = fps_sample(xyz, npoint, 8)
-    # fps_idx = fps_sample(xyz, npoint)
     new_xyz = index_points(xyz, fps_idx)
     idx = query_ball_point(radius, nsample, xyz, new_xyz)
     grouped_xyz = index_points(xyz, idx)  # [B, npoint, nsample, C]

@@ -1,5 +1,6 @@
 """
 Author: timelovery
+单独测试源场景流经FG和F1和F2的效果
 Date: 20230324
 """
 import argparse
@@ -16,6 +17,7 @@ from tqdm import tqdm
 import provider
 import numpy as np
 import time
+import pdb
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
@@ -41,7 +43,7 @@ def parse_args():
     parser.add_argument('--model', type=str, default='pointnet_sem_seg', help='model name [default: pointnet_sem_seg]')
     parser.add_argument('--batch_size', type=int, default=16, help='Batch Size during training [default: 16]')
     parser.add_argument('--epoch', default=32, type=int, help='Epoch to run [default: 32]')
-    parser.add_argument('--learning_rate', default=0.001, type=float, help='Initial learning rate [default: 0.001]')
+    parser.add_argument('--learning_rate', default=0.0008, type=float, help='Initial learning rate [default: 0.001]')
     parser.add_argument('--gpu', type=str, default='0', help='GPU to use [default: GPU 0]')
     parser.add_argument('--optimizer', type=str, default='Adam', help='Adam or SGD [default: Adam]')
     parser.add_argument('--log_dir', type=str, default=None, help='Log path [default: None]')
@@ -91,14 +93,14 @@ def main(args):
     log_string(args)
 
     Source_Scene_root = 'data/Source_Scene_Point_Clouds/'
-    Target_Scene_root = 'data/Target_Scene_Point_Clouds/'
+
     Test_Scene_root = 'data/Validationset/'
     NUM_CLASSES = 9
     NUM_POINT = args.npoint
     BATCH_SIZE = args.batch_size
 
     print("start loading training data ...")
-    TRAIN_DATASET = TrainDataLoader(Source_root=Source_Scene_root, Target_root=Target_Scene_root, num_point=NUM_POINT,
+    TRAIN_DATASET = TestDataLoader(Test_root=Source_Scene_root, num_point=NUM_POINT,
                                 block_size=4.0, sample_rate=1.0, transform=None)
     print("start loading test data ...")
     TEST_DATASET = TestDataLoader(Test_root=Test_Scene_root, num_point=NUM_POINT, block_size=4.0, sample_rate=1.0, transform=None)
@@ -121,8 +123,7 @@ def main(args):
     classifier = MODEL.get_model(NUM_CLASSES).cuda()
     criterion = MODEL.get_loss().cuda()  # 设置损失
     # EMD = MODEL.EMD_loss().cuda()  # EMD损失
-    EMD = MODEL.EMDLoss().cuda()  # EMD损失
-    ADV = MODEL.ADV_loss().cuda()  # ADV损失
+    # ADV = MODEL.ADV_loss().cuda()  # ADV损失
     classifier.apply(inplace_relu)
 
     def weights_init(m):  # 初始化权重
@@ -183,101 +184,32 @@ def main(args):
         total_correct = 0
         total_seen = 0
         loss_sum = 0
-        loss_emd_sum = 0
-        loss_max_mcd = 0
-        loss_min_mcd = 0
-        alpha, beta = 5, 5  # TODO：这里需要调试
+        # loss_emd_sum = 0
+        # loss_max_mcd = 0
+        # loss_min_mcd = 0
+        # alpha, beta = 1.5, 1.5  # TODO：这里需要调试
         classifier = classifier.train()
 
-        for i, (Source_points, Source_target, Target_points) in tqdm(enumerate(trainDataLoader),
+        for i, (Source_points, Source_target) in tqdm(enumerate(trainDataLoader),
                                                                      total=len(trainDataLoader), smoothing=0.9):
 
             Source_points = Source_points.data.numpy()
+            Source_points[:, :, :3] = provider.rotate_point_cloud_z(Source_points[:, :, :3])  # 随机旋转点云只是为了增加数据量
             Source_points = torch.Tensor(Source_points)
             Source_points, Source_target = Source_points.float().cuda(), Source_target.long().cuda()
             Source_points = Source_points.transpose(2, 1)
 
-            Target_points = Target_points.data.numpy()
-            Target_points = torch.Tensor(Target_points)
-            Target_points = Target_points.float().cuda()
-            Target_points = Target_points.transpose(2, 1)
-
-            """步骤2"""
-            optimizer.zero_grad()
-            Target_points = classifier(Source_points, Target_points, step='Step2')
-            EMD_loss = EMD(Target_points[:, 2, :], Source_points[:, 2, :])
-            EMD_loss.backward()
-            optimizer.step()
-
-            Source_points = Source_points.transpose(2, 1)
-            Target_points = Target_points.transpose(2, 1)
-            Source_points,  Target_points = Source_points.float().cpu(),  Target_points.float().cpu()
-            Source_points = Source_points.data.numpy()
-            Target_points = Target_points.data.numpy()
-
-            Source_points[:, :, :3] = provider.rotate_point_cloud_z(Source_points[:, :, :3])  # 随机旋转点云只是为了增加数据量
-            Source_points = torch.Tensor(Source_points)
-            Source_points = Source_points.float().cuda()
-            Source_points = Source_points.transpose(2, 1)
-
-            Target_points[:, :, :3] = provider.rotate_point_cloud_z(Target_points[:, :, :3])
-            Target_points = torch.Tensor(Target_points)
-            Target_points = Target_points.float().cuda()
-            Target_points = Target_points.transpose(2, 1)
-
-
             """步骤1"""
-            optimizer.zero_grad()
-            Source_pred_1, Source_pred_2 = classifier(Source_points, Target_points, step='Step1')
+            Source_pred_1, Source_pred_2 = classifier(Source_points, Source_points, step='Step1')
             Source_pred_1 = Source_pred_1.contiguous().view(-1, NUM_CLASSES)
             Source_pred_2 = Source_pred_2.contiguous().view(-1, NUM_CLASSES)
             batch_label = Source_target.view(-1, 1)[:, 0].cpu().data.numpy()
             Source_target = Source_target.view(-1, 1)[:, 0]
-            loss_ce = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
-            # loss_ce = (loss_ce-1).abs() + 1
-            loss_ce.backward()
-            optimizer.step()
+            loss = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
+            # loss = (loss - 1.0).abs() + 1.0
 
-            """步骤3"""
             optimizer.zero_grad()
-            for param in classifier.PA.parameters():
-                param.requires_grad = False
-            for param in classifier.FG.parameters():
-                param.requires_grad = False
-            Source_pred_1, Source_pred_2, Target_pred_1, Target_pred_2 = classifier(Source_points, Target_points, step='Step3')
-            Target_pred_1 = Target_pred_1.contiguous().view(-1, NUM_CLASSES)
-            Target_pred_2 = Target_pred_2.contiguous().view(-1, NUM_CLASSES)
-            Source_pred_1 = Source_pred_1.contiguous().view(-1, NUM_CLASSES)
-            Source_pred_2 = Source_pred_2.contiguous().view(-1, NUM_CLASSES)
-            loss_ce = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
-            ADV_loss = ADV(Target_pred_1, Target_pred_2)
-            max_MCD_loss = loss_ce - alpha * ADV_loss
-            max_MCD_loss.backward()
-            for param in classifier.PA.parameters():
-                param.requires_grad = True
-            for param in classifier.FG.parameters():
-                param.requires_grad = True
-            optimizer.step()
-            #
-            """步骤4"""
-            optimizer.zero_grad()
-            for param in classifier.F1.parameters():
-                param.requires_grad = False
-            for param in classifier.F2.parameters():
-                param.requires_grad = False
-            Source_pred_1, Source_pred_2, Target_pred_1, Target_pred_2 = classifier(Source_points, Target_points, step='Step4')
-            Target_pred_1 = Target_pred_1.contiguous().view(-1, NUM_CLASSES)
-            Target_pred_2 = Target_pred_2.contiguous().view(-1, NUM_CLASSES)
-            Source_pred_1 = Source_pred_1.contiguous().view(-1, NUM_CLASSES)
-            Source_pred_2 = Source_pred_2.contiguous().view(-1, NUM_CLASSES)
-            loss_ce = criterion(Source_pred_1, Source_pred_2, Source_target, weights)
-            ADV_loss = ADV(Target_pred_1, Target_pred_2)
-            min_MCD_loss = loss_ce + beta * ADV_loss
-            min_MCD_loss.backward()
-            for param in classifier.F1.parameters():
-                param.requires_grad = True
-            for param in classifier.F2.parameters():
-                param.requires_grad = True
+            loss.backward()
             optimizer.step()
 
             pred1_choice = Source_pred_1.cpu().data.max(1)[1].numpy()
@@ -286,16 +218,10 @@ def main(args):
 
             total_correct += correct
             total_seen += (BATCH_SIZE * NUM_POINT)
-            loss_sum += loss_ce
-            loss_emd_sum += EMD_loss
-            loss_max_mcd += max_MCD_loss
-            loss_min_mcd += min_MCD_loss
+            loss_sum += loss
 
         log_string('Training mean loss: %f' % (loss_sum / num_batches))
         log_string('Training accuracy: %f' % (total_correct / float(total_seen)))
-        log_string('Training emd loss: %f' % (loss_emd_sum / num_batches))
-        log_string('Training max_mcd loss: %f' % (loss_max_mcd / num_batches))
-        log_string('Training min_mcd loss: %f' % (loss_min_mcd / num_batches))
 
         if epoch % 5 == 0:
             logger.info('Save model...')
@@ -321,6 +247,8 @@ def main(args):
             total_iou_deno_class1 = [0 for _ in range(NUM_CLASSES)]
             total_correct_class2 = [0 for _ in range(NUM_CLASSES)]
             total_iou_deno_class2 = [0 for _ in range(NUM_CLASSES)]
+            # total_correct_class = [0 for _ in range(NUM_CLASSES)]
+            # total_iou_deno_class = [0 for _ in range(NUM_CLASSES)]
             classifier = classifier.eval()
 
             log_string('---- EPOCH %03d EVALUATION ----' % (global_epoch + 1))
@@ -343,6 +271,7 @@ def main(args):
                 loss_sum += loss
                 pred_val1 = np.argmax(pred_val1, 2)
                 pred_val2 = np.argmax(pred_val2, 2)
+                # correct = np.sum((pred_val == batch_label))
                 correct = (np.sum(pred_val1 == batch_label) + np.sum(pred_val2 == batch_label)) / 2
                 total_correct += correct
                 total_seen += (BATCH_SIZE * NUM_POINT)
@@ -355,8 +284,11 @@ def main(args):
                     total_iou_deno_class1[l] += np.sum(((pred_val1 == l) | (batch_label == l)))
                     total_correct_class2[l] += np.sum((pred_val2 == l) & (batch_label == l))
                     total_iou_deno_class2[l] += np.sum(((pred_val2 == l) | (batch_label == l)))
+                    # total_correct_class[l] += (total_correct_class1[l]+total_correct_class2[l])/2
+                    # total_iou_deno_class[l] += (total_iou_deno_class1[l]+total_iou_deno_class2[l])/2
 
             labelweights = labelweights.astype(np.float32) / np.sum(labelweights.astype(np.float32))
+
 
             log_string('分类器1' )
             mIoU1 = np.mean(np.array(total_correct_class1) / (np.array(total_iou_deno_class1, dtype=np.float) + 1e-6))
@@ -365,10 +297,12 @@ def main(args):
             log_string('分类器1eval point accuracy: %f' % (total_correct / float(total_seen)))
             log_string('分类器1eval point avg class acc: %f' % (
                 np.mean(np.array(total_correct_class1) / (np.array(total_seen_class, dtype=np.float) + 1e-6))))
+            # pdb.set_trace()
 
-            iou_per_class_str1 = '------- IoU --------\n'
+
+            iou_per_class_str = '------- IoU --------\n'
             for l in range(NUM_CLASSES):
-                iou_per_class_str1 += 'class %s weight: %.3f, IoU: %.3f \n' % (
+                iou_per_class_str += 'class %s weight: %.3f, IoU: %.3f \n' % (
                     seg_label_to_cat[l] + ' ' * (14 - len(seg_label_to_cat[l])), labelweights[l - 1],
                     total_correct_class1[l] / float(total_iou_deno_class1[l]))
 
@@ -381,14 +315,13 @@ def main(args):
                 np.mean(np.array(total_correct_class2) / (np.array(total_seen_class, dtype=np.float) + 1e-6))))
             # pdb.set_trace()
 
-            iou_per_class_str2 = '------- IoU --------\n'
+            iou_per_class_str = '------- IoU --------\n'
             for l in range(NUM_CLASSES):
-                iou_per_class_str2 += 'class %s weight: %.3f, IoU: %.3f \n' % (
+                iou_per_class_str += 'class %s weight: %.3f, IoU: %.3f \n' % (
                     seg_label_to_cat[l] + ' ' * (14 - len(seg_label_to_cat[l])), labelweights[l - 1],
                     total_correct_class2[l] / float(total_iou_deno_class2[l]))
 
-            log_string(iou_per_class_str1)
-            log_string(iou_per_class_str2)
+            log_string(iou_per_class_str)
             log_string('Eval mean loss: %f' % (loss_sum / num_batches))
             log_string('Eval accuracy: %f' % (total_correct / float(total_seen)))
 

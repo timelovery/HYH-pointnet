@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 from models.pointnet2_utils import PointNetSetAbstraction, PointNetFeaturePropagation
-
+from pyemd import emd
 
 class get_model(nn.Module):
     def __init__(self, num_classes):
@@ -17,46 +17,48 @@ class get_model(nn.Module):
     def forward(self, Source_xyz, Target_xyz, step='Step1'):
         if step == 'Step1':
             # 处理Source_xyz
-            l0_points_1_S, l4_points_S = self.FG(Source_xyz)
-            F1_pred_S = self.F1(l0_points_1_S, l4_points_S)
-            F2_pred_S = self.F2(l0_points_1_S, l4_points_S)
+            l0_points_1 = self.FG(Source_xyz)
+            F1_pred_S = self.F1(l0_points_1)
+            F2_pred_S = self.F2(l0_points_1)
             return F1_pred_S, F2_pred_S  # 用来计算CE1和CE2
         elif step == 'Step2':
             transform = self.PA(Target_xyz)
             return transform  # 用来计算EMD
 
-        elif step == 'Step3':
-            # 处理Source_xyz
-            l0_points_1_S, l4_points_S = self.FG(Source_xyz)
-            F1_pred_S = self.F1(l0_points_1_S, l4_points_S)
-            F2_pred_S = self.F2(l0_points_1_S, l4_points_S)
+        elif step == 'MCD':
+            # 处理Source_xy
+            l0_points_1 = self.FG(Source_xyz)
+            F1_pred_S = self.F1(l0_points_1)
+            F2_pred_S = self.F2(l0_points_1)
             # 处理Target_xyz
             # transform = self.PA(Target_xyz)
-            l0_points_1_T, l4_points_T = self.FG(Target_xyz)
-            F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
-            F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
+            l0_points_1 = self.FG(Target_xyz)
+            F1_pred_T = self.F1(l0_points_1)
+            F2_pred_T = self.F2(l0_points_1)
 
             return F1_pred_S, F2_pred_S, F1_pred_T, F2_pred_T
             # 用来计算ADV  # 用来计算EMD
         elif step == 'Step4':
             # 处理Source_xyz
-            l0_points_1_S, l4_points_S = self.FG(Source_xyz)
-            F1_pred_S = self.F1(l0_points_1_S, l4_points_S)
-            F2_pred_S = self.F2(l0_points_1_S, l4_points_S)
+            l0_points_1 = self.FG(Source_xyz)
+            F1_pred_S = self.F1(l0_points_1)
+            F2_pred_S = self.F2(l0_points_1)
             # 处理Target_xyz
             # transform = self.PA(Target_xyz)
-            l0_points_1_T, l4_points_T = self.FG(Target_xyz)
-            F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
-            F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
+            l0_points_1 = self.FG(Target_xyz)
+            F1_pred_T = self.F1(l0_points_1)
+            F2_pred_T = self.F2(l0_points_1)
+
             return F1_pred_S, F2_pred_S, F1_pred_T, F2_pred_T
+            # 用来计算ADV  # 用来计算EMD
         elif step == 'test':
             # 处理Target_xyz
             transform = self.PA(Target_xyz)
             # Target = transform_Function.apply(Target_xyz, transform)
             # Target_xyz[:, 2, :] = Target_xyz[:, 2, :] * transform.squeeze()
-            l0_points_1_T, l4_points_T = self.FG(transform)
-            F1_pred_T = self.F1(l0_points_1_T, l4_points_T)
-            F2_pred_T = self.F2(l0_points_1_T, l4_points_T)
+            l0_points_1 = self.FG(transform)
+            F1_pred_T = self.F1(l0_points_1)
+            F2_pred_T = self.F2(l0_points_1)
 
             return F1_pred_T, F2_pred_T
 
@@ -87,7 +89,7 @@ class SetAbstractionandFeatureProgation(nn.Module):
         l2_points_1 = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points_1)
         l1_points_1 = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points_1)
         l0_points_1 = self.fp1(l0_xyz, l1_xyz, None, l1_points_1)
-        return l0_points_1, l4_points
+        return l0_points_1
 
 
 class Classifier(nn.Module):
@@ -100,7 +102,7 @@ class Classifier(nn.Module):
         self.drop1 = nn.Dropout(0.5)
         self.conv2 = nn.Conv1d(128, num_classes, 1)
 
-    def forward(self, l0_points_1, l4_points):
+    def forward(self, l0_points_1):
         x_1 = self.drop1(F.relu(self.bn1(self.conv1(l0_points_1))))
         x_1 = F.log_softmax(self.conv2(x_1), dim=1)
         x_1 = x_1.permute(0, 2, 1)
@@ -177,39 +179,45 @@ class EMD_loss(nn.Module):  # emd_loss
 
 class EMDLoss(nn.Module):
     def __init__(self):
-        super(EMDLoss, self).__init__()
-        # self.distance_matrix = distance_matrix
+        super().__init__()
 
-    def forward(self, _input, target):
-        batch_size, height, width = _input.size()
-        # 求距离矩阵
-        distance_matrix = torch.cdist(_input.unsqueeze(0), target.unsqueeze(0), p=2.0)
-        # 将高程数据从二维矩阵形式转换为一维向量形式
-        _input = _input.view(batch_size, -1)
-        target = target.view(batch_size, -1)
-        # 计算目标分布和源分布的直方图
-        num_bins = distance_matrix.size
-        input_hist = F.one_hot(torch.bucketize(_input, num_bins), num_bins).float()
-        target_hist = F.one_hot(torch.bucketize(target, num_bins), num_bins).float()
+    def forward(self, source, target):
+        """
+            计算输入分布和目标分布之间的EMDloss值。
 
-        # 计算输入和目标分布之间的差异
-        diff_matrix = torch.abs(input_hist.unsqueeze(2) - target_hist.unsqueeze(1))
-        # 按照距离矩阵对差异矩阵进行加权
-        weighted_matrix = diff_matrix * self.distance_matrix
-        # 求出最小搬运成本
-        min_cost, _ = torch.linalg.matrix_power(weighted_matrix, 1).min(dim=-1)
-        # 计算EMD距离
-        emd_distance = torch.mean(min_cost)
-        return emd_distance
+            参数：
+            input_dist：高程，大小为[B, N]。
+            target_dist：高程，大小为[B, N]。
 
+            返回：
+            loss：EMDloss值，标量张量。
+            """
+
+        # 计算距离矩阵
+        dist_mat = torch.abs(source.unsqueeze(2) - target.unsqueeze(1))  # [B,1,N,N]
+        min_dist, min_idx = torch.min(dist_mat, dim=1)
+        emd_loss = torch.min(torch.sum(min_dist, dim=1))
+
+        return emd_loss
 
 class ADV_loss(nn.Module):  # ADV_loss
     def __init__(self):
         super(ADV_loss, self).__init__()
 
     def forward(self, F1_pred, F2_pred):
-        adv_loss = torch.sum(torch.abs(torch.softmax(F1_pred, dim=1) - torch.softmax(F2_pred, dim=1))) / (
-                F1_pred.size(0) * F1_pred.size(1))
+        F1_pred = F.softmax(F1_pred, dim=1)
+        F2_pred = F.softmax(F2_pred, dim=1)
+        # NK = F1_pred.size(0) * F1_pred.size(1)
+
+        F1_pred = torch.argmax(F1_pred, 1)
+        F2_pred = torch.argmax(F2_pred, 1)
+        # adv_loss = torch.log(torch.sum(torch.abs(F1_pred-F2_pred)) / F1_pred.size(0))
+        adv_loss = torch.sum(torch.abs(F1_pred-F2_pred)) / F1_pred.size(0)
+
+        # adv_loss = torch.sum(torch.abs(torch.softmax(F1_pred, dim=1) - torch.softmax(F2_pred, dim=1))) / (
+        #         F1_pred.size(0) * F1_pred.size(1))
+
+        # pdb.set_trace()
 
         return adv_loss
 
