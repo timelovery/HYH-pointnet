@@ -6,6 +6,7 @@ import torch
 from models.pointnet2_utils import PointNetSetAbstraction, PointNetFeaturePropagation
 from pyemd import emd
 
+
 class get_model(nn.Module):
     def __init__(self, num_classes):
         super(get_model, self).__init__()
@@ -167,14 +168,14 @@ class get_loss(nn.Module):
         return total_loss1 + total_loss2
 
 
-class EMD_loss(nn.Module):  # emd_loss
-    def __init__(self):
-        super(EMD_loss, self).__init__()
-
-    def forward(self, Target_Z, Source_Z):
-        emd_loss = torch.min(torch.log(torch.norm(Target_Z - Source_Z, dim=1) / 2))
-
-        return emd_loss
+# class EMD_loss(nn.Module):  # emd_loss
+#     def __init__(self):
+#         super(EMD_loss, self).__init__()
+#
+#     def forward(self, Target_Z, Source_Z):
+#         emd_loss = torch.min(torch.log(torch.norm(Target_Z - Source_Z, dim=1) / 2))
+#
+#         return emd_loss
 
 
 class EMDLoss(nn.Module):
@@ -200,6 +201,7 @@ class EMDLoss(nn.Module):
 
         return emd_loss
 
+
 class ADV_loss(nn.Module):  # ADV_loss
     def __init__(self):
         super(ADV_loss, self).__init__()
@@ -212,7 +214,7 @@ class ADV_loss(nn.Module):  # ADV_loss
         F1_pred = torch.argmax(F1_pred, 1)
         F2_pred = torch.argmax(F2_pred, 1)
         # adv_loss = torch.log(torch.sum(torch.abs(F1_pred-F2_pred)) / F1_pred.size(0))
-        adv_loss = torch.sum(torch.abs(F1_pred-F2_pred)) / F1_pred.size(0)
+        adv_loss = torch.sum(torch.abs(F1_pred - F2_pred)) / F1_pred.size(0)
 
         # adv_loss = torch.sum(torch.abs(torch.softmax(F1_pred, dim=1) - torch.softmax(F2_pred, dim=1))) / (
         #         F1_pred.size(0) * F1_pred.size(1))
@@ -220,24 +222,6 @@ class ADV_loss(nn.Module):  # ADV_loss
         # pdb.set_trace()
 
         return adv_loss
-
-
-# class transform_Function(torch.autograd.Function):
-#
-#     @staticmethod
-#     def forward(ctx, A, B):
-#         result = A.clone()
-#         result[:, 2, :] *= B[:, :, 0]
-#         ctx.save_for_backward(result, B)
-#         return result
-#
-#     @staticmethod
-#     def backward(ctx, grad_output):
-#         A, B = ctx.saved_tensors
-#         grad_A = grad_output.clone()
-#         grad_A[:, 2, :] *= B[:, :, 0]
-#         grad_B = torch.sum((grad_output * A[:, 2, :].unsqueeze(1)).permute(0, 2, 1), dim=2, keepdim=True)
-#         return grad_A, grad_B
 
 
 if __name__ == '__main__':

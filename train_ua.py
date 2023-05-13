@@ -199,6 +199,8 @@ def main(args):
         """训练源域分类器和pw-atm"""
         for i, (Source_points, Source_target, Target_points) in tqdm(enumerate(trainDataLoader),
                                                                      total=len(trainDataLoader), smoothing=0.9):
+            optimizer.zero_grad()
+
             Source_points = Source_points.data.numpy()
             Source_points = torch.Tensor(Source_points)
             Source_points, Source_target = Source_points.float().cuda(), Source_target.long().cuda()
@@ -423,12 +425,12 @@ def main(args):
             labelweights = labelweights.astype(np.float32) / np.sum(labelweights.astype(np.float32))
 
             log_string('分类器1')
-            mIoU1 = np.mean(np.array(total_correct_class1) / (np.array(total_iou_deno_class1, dtype=np.float) + 1e-6))
+            mIoU1 = np.mean(np.array(total_correct_class1) / (np.array(total_iou_deno_class1, dtype=np.float64) + 1e-6))
             log_string('分类器1eval mean loss: %f' % (loss_sum / float(num_batches)))
             log_string('分类器1eval point avg class IoU: %f' % mIoU1)
             log_string('分类器1eval point accuracy: %f' % (total_correct / float(total_seen)))
             log_string('分类器1eval point avg class acc: %f' % (
-                np.mean(np.array(total_correct_class1) / (np.array(total_seen_class, dtype=np.float) + 1e-6))))
+                np.mean(np.array(total_correct_class1) / (np.array(total_seen_class, dtype=np.float64) + 1e-6))))
 
             iou_per_class_str1 = '------- IoU --------\n'
             for l in range(NUM_CLASSES):
@@ -437,12 +439,12 @@ def main(args):
                     total_correct_class1[l] / float(total_iou_deno_class1[l]))
 
             log_string('分类器2')
-            mIoU2 = np.mean(np.array(total_correct_class2) / (np.array(total_iou_deno_class2, dtype=np.float) + 1e-6))
+            mIoU2 = np.mean(np.array(total_correct_class2) / (np.array(total_iou_deno_class2, dtype=np.float64) + 1e-6))
             log_string('分类器1eval mean loss: %f' % (loss_sum / float(num_batches)))
             log_string('分类器1eval point avg class IoU: %f' % mIoU2)
             log_string('分类器1eval point accuracy: %f' % (total_correct / float(total_seen)))
             log_string('分类器1eval point avg class acc: %f' % (
-                np.mean(np.array(total_correct_class2) / (np.array(total_seen_class, dtype=np.float) + 1e-6))))
+                np.mean(np.array(total_correct_class2) / (np.array(total_seen_class, dtype=np.float64) + 1e-6))))
             # pdb.set_trace()
 
             iou_per_class_str2 = '------- IoU --------\n'

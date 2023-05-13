@@ -37,7 +37,8 @@ def parse_args():
     parser.add_argument('--log_dir', type=str, required=True, help='experiment root')
     parser.add_argument('--visual', action='store_true', default=False, help='visualize result [default: False]')
     # parser.add_argument('--test_area', type=int, default=5, help='area for testing, option: 1-6 [default: 5]')
-    parser.add_argument('--num_votes', type=int, default=3, help='aggregate segmentation scores with voting [default: 5]')
+    parser.add_argument('--num_votes', type=int, default=3,
+                        help='aggregate segmentation scores with voting [default: 5]')
     return parser.parse_args()
 
 
@@ -82,7 +83,7 @@ def main(args):
 
     root = 'data/testset/'
 
-    TEST_DATASET_WHOLE_SCENE = testsetWholeScene(root, block_points=NUM_POINT)
+    TEST_DATASET_WHOLE_SCENE = testsetWholeScene(root, block_points=NUM_POINT, block_size=4.0)
     log_string("The number of test data is: %d" % len(TEST_DATASET_WHOLE_SCENE))
 
     '''MODEL LOADING'''
@@ -98,105 +99,54 @@ def main(args):
         scene_id = [x[:-4] for x in scene_id]
         num_batches = len(TEST_DATASET_WHOLE_SCENE)
 
-        # total_seen_class = [0 for _ in range(NUM_CLASSES)]
-        # total_correct_class = [0 for _ in range(NUM_CLASSES)]
-        # total_iou_deno_class = [0 for _ in range(NUM_CLASSES)]
-
         log_string('---- EVALUATION WHOLE SCENE----')
 
         for batch_idx in range(num_batches):
             print("Inference [%d/%d] %s ..." % (batch_idx + 1, num_batches, scene_id[batch_idx]))
-            # total_seen_class_tmp = [0 for _ in range(NUM_CLASSES)]
-            # total_correct_class_tmp = [0 for _ in range(NUM_CLASSES)]
-            # total_iou_deno_class_tmp = [0 for _ in range(NUM_CLASSES)]
-            if args.visual:
-                fout = open(os.path.join(visual_dir, scene_id[batch_idx] + '_pred.obj'), 'w')
-                # fout_gt = open(os.path.join(visual_dir, scene_id[batch_idx] + '_gt.obj'), 'w')
-
-            whole_scene_data = TEST_DATASET_WHOLE_SCENE.scene_points_list[batch_idx]
-            # whole_scene_label = TEST_DATASET_WHOLE_SCENE.semantic_labels_list[batch_idx]
-            vote_label_pool = np.zeros((whole_scene_data.shape[0], NUM_CLASSES))
-            for _ in tqdm(range(args.num_votes), total=args.num_votes):
-                scene_data, scene_point_index = TEST_DATASET_WHOLE_SCENE[batch_idx]
-                num_blocks = scene_data.shape[0]
-                s_batch_num = (num_blocks + BATCH_SIZE - 1) // BATCH_SIZE
-                batch_data = np.zeros((BATCH_SIZE, NUM_POINT, 9))
-
-                # batch_label = np.zeros((BATCH_SIZE, NUM_POINT))
-                batch_point_index = np.zeros((BATCH_SIZE, NUM_POINT))
-                # batch_smpw = np.zeros((BATCH_SIZE, NUM_POINT))
-
-                for sbatch in range(s_batch_num):
-                    start_idx = sbatch * BATCH_SIZE
-                    end_idx = min((sbatch + 1) * BATCH_SIZE, num_blocks)
-                    real_batch_size = end_idx - start_idx
-                    batch_data[0:real_batch_size, ...] = scene_data[start_idx:end_idx, ...]  # [B,N,C]
-                    # batch_label[0:real_batch_size, ...] = scene_label[start_idx:end_idx, ...]  # [B,N]
-                    batch_point_index[0:real_batch_size, ...] = scene_point_index[start_idx:end_idx, ...]  # [B,N]
-                    # batch_smpw[0:real_batch_size, ...] = scene_smpw[start_idx:end_idx, ...]  # [B,N]
-                    batch_data[:, :, 3:6] /= 1.0
-
-                    torch_data = torch.Tensor(batch_data)
-                    torch_data = torch_data.float().cuda()
-                    torch_data = torch_data.transpose(2, 1)
-                    seg_pred, _ = classifier(torch_data, torch_data, step='test')
-                    batch_pred_label = seg_pred.contiguous().cpu().data.max(2)[1].numpy()
-
-                    # vote_label_pool = add_vote(vote_label_pool, batch_point_index[0:real_batch_size, ...],
-                    #                            batch_pred_label[0:real_batch_size, ...],
-                    #                            batch_smpw[0:real_batch_size, ...])  # TODO：需要解决batch_smpw问题，
-                    vote_label_pool = add_vote(vote_label_pool, batch_point_index[0:real_batch_size, ...],
-                                               batch_pred_label[0:real_batch_size, ...], 1)  # TODO：需要解决batch_smpw问题，
-            pred_label = np.argmax(vote_label_pool, 1)
-
-            # for l in range(NUM_CLASSES):
-            #     total_seen_class_tmp[l] += np.sum((whole_scene_label == l))
-            #     total_correct_class_tmp[l] += np.sum((pred_label == l) & (whole_scene_label == l))
-            #     total_iou_deno_class_tmp[l] += np.sum(((pred_label == l) | (whole_scene_label == l)))
-            #     total_seen_class[l] += total_seen_class_tmp[l]
-            #     total_correct_class[l] += total_correct_class_tmp[l]
-            #     total_iou_deno_class[l] += total_iou_deno_class_tmp[l]
-
-            # iou_map = np.array(total_correct_class_tmp) / (np.array(total_iou_deno_class_tmp, dtype=np.float) + 1e-6)
-            # print(iou_map)
-            # arr = np.array(total_seen_class_tmp)
-            # tmp_iou = np.mean(iou_map[arr != 0])
-            # log_string('Mean IoU of %s: %.4f' % (scene_id[batch_idx], tmp_iou))
-            print('----------------------------')
-
-            filename = os.path.join(visual_dir, scene_id[batch_idx] + '.txt')
-            with open(filename, 'w') as pl_save:
-                for i in pred_label:
-                    pl_save.write(str(int(i)) + '\n')
-                pl_save.close()
-            for i in range(whole_scene_data.shape[0]):
-                color = g_label2color[pred_label[i]]
-                # color_gt = g_label2color[whole_scene_label[i]]
+            try:
                 if args.visual:
-                    fout.write('v %f %f %f %d %d %d\n' % (
-                        whole_scene_data[i, 0], whole_scene_data[i, 1], whole_scene_data[i, 2], color[0], color[1],
-                        color[2]))
-                    # fout_gt.write(
-                    #     'v %f %f %f %d %d %d\n' % (
-                    #         whole_scene_data[i, 0], whole_scene_data[i, 1], whole_scene_data[i, 2], color_gt[0],
-                    #         color_gt[1], color_gt[2]))
-            if args.visual:
-                fout.close()
-                # fout_gt.close()
+                    fout = open(os.path.join(visual_dir, scene_id[batch_idx] + '_pred.obj'), 'w')
+                whole_scene_data = TEST_DATASET_WHOLE_SCENE.scene_points_list[batch_idx]
+                vote_label_pool = np.zeros((whole_scene_data.shape[0], NUM_CLASSES))
+                for _ in tqdm(range(args.num_votes), total=args.num_votes):
+                    scene_data, scene_point_index = TEST_DATASET_WHOLE_SCENE[batch_idx]
+                    num_blocks = scene_data.shape[0]
+                    s_batch_num = (num_blocks + BATCH_SIZE - 1) // BATCH_SIZE
+                    batch_data = np.zeros((BATCH_SIZE, NUM_POINT, 9))
+                    batch_point_index = np.zeros((BATCH_SIZE, NUM_POINT))
+                    for sbatch in range(s_batch_num):
+                        start_idx = sbatch * BATCH_SIZE
+                        end_idx = min((sbatch + 1) * BATCH_SIZE, num_blocks)
+                        real_batch_size = end_idx - start_idx
+                        batch_data[0:real_batch_size, ...] = scene_data[start_idx:end_idx, ...]  # [B,N,C]
+                        batch_point_index[0:real_batch_size, ...] = scene_point_index[start_idx:end_idx, ...]  # [B,N]
+                        batch_data[:, :, 3:6] /= 1.0
+                        torch_data = torch.Tensor(batch_data)
+                        torch_data = torch_data.float().cuda()
+                        torch_data = torch_data.transpose(2, 1)
+                        seg_pred, _ = classifier(torch_data, torch_data, step='test')
+                        batch_pred_label = seg_pred.contiguous().cpu().data.max(2)[1].numpy()
 
-        # IoU = np.array(total_correct_class) / (np.array(total_iou_deno_class, dtype=np.float) + 1e-6)
-        # iou_per_class_str = '------- IoU --------\n'
-        # for l in range(NUM_CLASSES):
-        #     iou_per_class_str += 'class %s, IoU: %.3f \n' % (
-        #         seg_label_to_cat[l] + ' ' * (14 - len(seg_label_to_cat[l])),
-        #         total_correct_class[l] / float(total_iou_deno_class[l]))
-        # log_string(iou_per_class_str)
-        # log_string('eval point avg class IoU: %f' % np.mean(IoU))
-        # log_string('eval whole scene point avg class acc: %f' % (
-        #     np.mean(np.array(total_correct_class) / (np.array(total_seen_class, dtype=np.float) + 1e-6))))
-        # log_string('eval whole scene point accuracy: %f' % (
-        #         np.sum(total_correct_class) / float(np.sum(total_seen_class) + 1e-6)))
-
+                        vote_label_pool = add_vote(vote_label_pool, batch_point_index[0:real_batch_size, ...],
+                                                   batch_pred_label[0:real_batch_size, ...],
+                                                   1)  # TODO：需要解决batch_smpw问题，
+                pred_label = np.argmax(vote_label_pool, 1)
+                print('----------------------------')
+                filename = os.path.join(visual_dir, scene_id[batch_idx] + '.txt')
+                with open(filename, 'w') as pl_save:
+                    for i in pred_label:
+                        pl_save.write(str(int(i)) + '\n')
+                    pl_save.close()
+                for i in range(whole_scene_data.shape[0]):
+                    color = g_label2color[pred_label[i]]
+                    if args.visual:
+                        fout.write('v %f %f %f %d %d %d\n' % (
+                            whole_scene_data[i, 0], whole_scene_data[i, 1], whole_scene_data[i, 2], color[0], color[1],
+                            color[2]))
+                if args.visual:
+                    fout.close()
+            except Exception as e:
+                print(f" %s failed at {str(e)}" % (scene_id[batch_idx]) )
         print("Done!")
 
 
