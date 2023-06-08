@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="test" type="PythonConfigurationType" factoryName="Python">
-    <module name="UA-pointnet" />
+    <module name="SUPnet" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
