@@ -10,15 +10,15 @@ sys.path.append(BASE_DIR)
 DATA_PATH = os.path.join(ROOT_DIR, 'data', 's3dis', 'Stanford3dDataset_v1.2_Aligned_Version')
 g_classes = [x.rstrip() for x in open(os.path.join(BASE_DIR, 'meta/class_names.txt'))]
 g_class2label = {cls: i for i, cls in enumerate(g_classes)}
-g_class2color = {'unlabeled': [0, 0, 0],  # 未标记点 ，白色
-                 'man-made terrain': [34, 40, 47],  # 人工造物，黑色
+g_class2color = {'unlabeled': [0, 0, 0],  # 未标记点 ，黑色
+                 'man-made terrain': [34, 40, 47],  # 人工造物，藏黑色
                  'natural terrain': [128, 128, 128],  # 自然地形 灰色
                  'high vegetation': [41, 149, 52],  # 高植被，深绿色
-                 'low vegetation': [35, 255, 159],  # 低植被，淡绿色
+                 'low vegetation': [35, 255, 159],  # 低植被，淡绿
                  'buildings': [255, 255, 0],  # 建筑，黄色
                  'hard scape': [200, 200, 100],  # 硬景观 淡棕黄
                  'scanning artefacts': [255, 0, 0],  # 扫描工件 红色
-                 'cars': [0, 255, 255]}  # 车 蓝色
+                 'cars': [0, 255, 255]}  # 车 青色
 g_easy_view_labels = [7, 8, 9, 10, 11, 1]
 g_label2color = {g_classes.index(cls): g_class2color[cls] for cls in g_classes}
 
